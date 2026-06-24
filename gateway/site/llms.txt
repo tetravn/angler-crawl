@@ -1,0 +1,52 @@
+# Angler
+
+> Local-only search + crawl stack for AI agents. Năm service Docker gom sau một
+> gateway Caddy, chỉ mở một port (17300). Chạy single-user, không auth, không
+> rate-limit (chỉ dùng trong mạng nội bộ tin cậy). Định hướng: công cụ research
+> ưu tiên đa dạng nguồn / chống thiên lệch, không phụ thuộc cloud.
+
+Mọi đường dẫn dưới đây tính từ gốc gateway (ví dụ `http://localhost:17300`).
+Đặc tả máy-đọc đầy đủ: [openapi.json](/openapi.json) — agent nên đọc file này để
+biết schema chính xác của mọi endpoint.
+
+## API chính (tương thích Firecrawl)
+
+Dùng Firecrawl SDK: đặt `FIRECRAWL_API_URL` trỏ vào gốc gateway. Mọi endpoint
+đăng ký cho cả `/v1` và `/v2` (chung schema; chỉ `/search` khác cấu trúc `data`).
+
+- [Swagger UI](/docs): trang bấm-thử-được cho người
+- [ReDoc](/redoc): bản tài liệu đọc đẹp
+- `POST /v1/scrape`: cào một URL → markdown/html (tự bypass Cloudflare khi cần); tuỳ chọn `fallback` opt-in gọi dịch vụ ngoài (Jina / Firecrawl cloud) khi nội dung vẫn bị chặn
+- `POST /v1/crawl`: deep-crawl theo BFS (job bất đồng bộ; GET `/v1/crawl/{id}` để lấy kết quả)
+- `POST /v1/batch/scrape`: cào nhiều URL trong một job
+- `POST /v1/map`: liệt kê link / sitemap của một site
+- `POST /v1/search`: tìm kiếm qua SearXNG (tuỳ chọn scrape từng kết quả)
+- `POST /v1/research`: gatherer chống thiên lệch — đa dạng nguồn theo nhiều trục; (tuỳ chọn, cần LLM) dịch query đa ngôn ngữ và so chéo nguồn (`analyze`) trả `translations`/`analysis`/`warnings`
+- `POST /v1/extract`: scrape rồi trích bằng LLM (cần cấu hình LLM)
+- `POST /v1/deep-research`: nghiên cứu sâu (async job, cần LLM) — bẻ câu hỏi, tìm/scrape nhiều vòng, tổng hợp có trích dẫn; poll `GET /v1/deep-research/{id}`
+- `POST /v1/agent`: browser agent tự lái (async job, cần LLM) — điều hướng trang theo mục tiêu (index-grounding + loop-detect + done-verify); poll `GET /v1/agent/{id}`
+- Bản streaming (SSE): `POST /v1/deep-research/stream` và `POST /v1/agent/stream` — trả text/event-stream (event phase/step/token/done).
+- `POST /v1/monitor`: theo dõi thay đổi trang (diff theo thời gian)
+- `POST /v1/transcript`: lấy phụ đề/transcript video
+
+## Quan sát (logs và metrics)
+
+Hai endpoint ghi lại hoạt động nội bộ, dùng để troubleshoot và đánh giá chất lượng crawl (tỉ lệ blocked, stub, phải dùng FlareSolverr, …). Gác bằng `Authorization: Bearer <ANGLER_API_KEY>` khi key được đặt; khi key để trống (chế độ mở local) thì mở như mọi endpoint khác.
+
+- `GET /v1/logs`: lọc log theo `kind`, `level`, `request_id`, `since`/`until` (epoch), `limit` (mặc định 200, trần 1000). Trả `{success, events:[{ts,level,kind,request_id,msg,fields}], count}`.
+- `GET /v1/stats?window=24h`: thống kê tổng hợp theo cửa sổ thời gian (`24h`/`90m`/`7d`/số giây thô). Trả `{success, stats:{windowSeconds, total, byKind, byLevel, scrapeOutcomes, topDomains}}`.
+
+## Service backend (gọi trực tiếp khi cần)
+
+Mỗi service phơi bày tài liệu tự-mô-tả riêng:
+
+- SearXNG — metasearch. Không có OpenAPI; lấy JSON bằng query param `format=json`.
+  - [Search JSON](/searxng/search?q=docker&format=json): `GET /searxng/search?q=...&format=json`
+  - [Web UI](/searxng/) · [config JSON](/searxng/config) · [OpenSearch descriptor](/searxng/opensearch.xml)
+- Crawl4AI — engine crawler/scraper, có OpenAPI đầy đủ.
+  - [openapi.json](/crawl4ai/openapi.json) · [Swagger UI](/crawl4ai/docs) · [ReDoc](/crawl4ai/redoc) · [health](/crawl4ai/health)
+- FlareSolverr — bypass Cloudflare/anti-bot. Không có OpenAPI; mọi lệnh là `POST /flaresolverr/v1` với body `{cmd: ...}`.
+
+## Discovery
+
+- [manifest.json](/manifest.json): mục lục máy-đọc của toàn stack (Accept: application/json tại `/` cũng trả file này)

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Angler — search + crawl stack</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 860px; margin: 0 auto; padding: 2.5rem 1.25rem;
+      color: #1a1a1a; background: #fafafa;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e6e6e6; background: #161616; }
+      .card { background: #1f1f1f; border-color: #333; }
+      code { background: #2a2a2a; }
+      a { color: #6db3f2; }
+    }
+    h1 { font-size: 1.8rem; margin: 0 0 .25rem; }
+    .tag { display: inline-block; font-size: .72rem; letter-spacing: .04em;
+      text-transform: uppercase; color: #888; border: 1px solid #ccc;
+      border-radius: 999px; padding: .1rem .55rem; vertical-align: middle; }
+    .lead { color: #666; margin: .4rem 0 2rem; }
+    h2 { font-size: 1.05rem; margin: 2rem 0 .75rem; }
+    .grid { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+    .card { border: 1px solid #e2e2e2; border-radius: 10px; padding: .9rem 1rem; background: #fff; }
+    .card h3 { margin: 0 0 .2rem; font-size: .95rem; }
+    .card p { margin: 0 0 .5rem; color: #777; font-size: .85rem; }
+    .card a { font-size: .85rem; }
+    code { background: #eee; padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
+    .endpoints a { display: inline-block; margin: 0 .9rem .4rem 0; }
+    footer { margin-top: 2.5rem; color: #999; font-size: .8rem; border-top: 1px solid #ddd; padding-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Angler <span class="tag">local · no auth</span></h1>
+  <p class="lead">Search + crawl stack cho AI agent — năm service sau một gateway, một port.</p>
+
+  <h2>Tài liệu API</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Swagger UI</h3>
+      <p>Liệt kê &amp; bấm-thử mọi endpoint.</p>
+      <a href="/docs">/docs →</a>
+    </div>
+    <div class="card">
+      <h3>ReDoc</h3>
+      <p>Bản tài liệu đọc đẹp.</p>
+      <a href="/redoc">/redoc →</a>
+    </div>
+    <div class="card">
+      <h3>OpenAPI (JSON)</h3>
+      <p>Đặc tả máy-đọc cho client/SDK.</p>
+      <a href="/openapi.json">/openapi.json →</a>
+    </div>
+    <div class="card">
+      <h3>llms.txt</h3>
+      <p>Mô tả ngắn cho LLM agent.</p>
+      <a href="/llms.txt">/llms.txt →</a>
+    </div>
+  </div>
+
+  <h2>API chính — tương thích Firecrawl</h2>
+  <p class="lead">Đặt <code>FIRECRAWL_API_URL</code> trỏ vào gốc gateway. Mọi endpoint có cả <code>/v1</code> và <code>/v2</code>.</p>
+  <div class="endpoints">
+    <a href="/docs#/default/scrape_v1_scrape_post"><code>POST /v1/scrape</code></a>
+    <a href="/docs#/default/crawl_v1_crawl_post"><code>POST /v1/crawl</code></a>
+    <a href="/docs"><code>POST /v1/batch/scrape</code></a>
+    <a href="/docs"><code>POST /v1/map</code></a>
+    <a href="/docs"><code>POST /v1/search</code></a>
+    <a href="/docs"><code>POST /v1/research</code></a>
+    <a href="/docs"><code>POST /v1/extract</code></a>
+    <a href="/docs"><code>POST /v1/deep-research</code></a>
+    <a href="/docs"><code>POST /v1/deep-research/stream</code></a>
+    <a href="/docs"><code>POST /v1/agent</code></a>
+    <a href="/docs"><code>POST /v1/agent/stream</code></a>
+    <a href="/docs"><code>POST /v1/monitor</code></a>
+    <a href="/docs"><code>POST /v1/transcript</code></a>
+    <a href="/docs"><code>GET /v1/logs</code></a>
+    <a href="/docs"><code>GET /v1/stats</code></a>
+  </div>
+  <p class="lead"><code>/deep-research/stream</code> &amp; <code>/agent/stream</code> trả <code>text/event-stream</code> (SSE) — token/step trực tiếp. <code>/scrape</code> nhận <code>fallback: "jina"|"firecrawl"</code> (opt-in) khi nguồn nội bộ bị chặn.</p>
+  <p class="lead"><code>/v1/logs</code> và <code>/v1/stats</code> phơi activity log và thống kê chất lượng crawl (tỉ lệ blocked, stub, FlareSolverr…). Khi <code>ANGLER_API_KEY</code> được đặt, hai endpoint này yêu cầu <code>Authorization: Bearer &lt;key&gt;</code>.</p>
+
+  <h2>Service backend</h2>
+  <p class="lead">Mỗi service có tài liệu tự-mô-tả riêng — gọi trực tiếp khi cần.</p>
+  <div class="grid">
+    <div class="card">
+      <h3>SearXNG</h3>
+      <p>Metasearch (không có OpenAPI — dùng <code>format=json</code>).</p>
+      <a href="/searxng/">UI</a> ·
+      <a href="/searxng/search?q=docker&format=json">search JSON</a> ·
+      <a href="/searxng/config">config</a>
+    </div>
+    <div class="card">
+      <h3>Crawl4AI</h3>
+      <p>Engine crawler/scraper (OpenAPI đầy đủ).</p>
+      <a href="/crawl4ai/docs">Swagger</a> ·
+      <a href="/crawl4ai/redoc">ReDoc</a> ·
+      <a href="/crawl4ai/openapi.json">openapi.json</a>
+    </div>
+    <div class="card">
+      <h3>FlareSolverr</h3>
+      <p>Bypass Cloudflare / anti-bot (không có OpenAPI).</p>
+      <code>POST /flaresolverr/v1</code>
+    </div>
+  </div>
+
+  <footer>
+    Agent khám phá tự động: <code>GET /</code> với <code>Accept: application/json</code> trả về
+    <a href="/manifest.json">manifest.json</a>.
+  </footer>
+</body>
+</html>

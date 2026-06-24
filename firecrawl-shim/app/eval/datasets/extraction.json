@@ -1,0 +1,5 @@
+[
+  {"url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+   "prompt": "Extract: creator (người tạo), first release year (năm ra mắt đầu tiên).",
+   "expected": {"creator": "Guido van Rossum", "first_release_year": "1991"}}
+]

@@ -1,0 +1,64 @@
+# SearXNG cấu hình — bật JSON API + 80+ search engines
+# Docs: https://docs.searxng.org/admin/settings/
+
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "angler-local-dev-key-change-in-prod"
+  bind_address: "0.0.0.0"
+  # Cho phép CORS từ localhost để Hermes gọi API
+  limiter: false
+
+# Bật các engines phổ biến
+engines:
+  - name: duckduckgo
+    disabled: false
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: google news
+    disabled: false
+  - name: google images
+    disabled: false
+  - name: duckduckgo images
+    disabled: false
+  - name: wordnik
+    disabled: false
+  - name: wikidata
+    disabled: false
+  - name: google videos
+    disabled: false
+  - name: github
+    disabled: false
+  - name: stackexchange
+    disabled: false
+  - name: arxiv
+    disabled: false
+  - name: docker hub
+    disabled: false
+  - name: npm
+    disabled: false
+  - name: pypi
+    disabled: false
+  - name: reddit
+    disabled: false
+  - name: mdn
+    disabled: false

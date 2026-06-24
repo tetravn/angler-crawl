@@ -1,0 +1,66 @@
+{
+  "service": "angler",
+  "description": "Local-only search + crawl stack for AI agents. Single gateway, single port.",
+  "version": "1.0.0",
+  "auth": "none (local network only)",
+  "docs": {
+    "openapi": "/openapi.json",
+    "swagger_ui": "/docs",
+    "redoc": "/redoc",
+    "llms_txt": "/llms.txt"
+  },
+  "primary_api": {
+    "name": "firecrawl-compatible",
+    "hint": "Firecrawl SDK: set FIRECRAWL_API_URL to this gateway root. Endpoints under /v1 and /v2.",
+    "base": "/v1",
+    "openapi": "/openapi.json",
+    "key_endpoints": {
+      "scrape": "POST /v1/scrape",
+      "crawl": "POST /v1/crawl",
+      "batch_scrape": "POST /v1/batch/scrape",
+      "map": "POST /v1/map",
+      "search": "POST /v1/search",
+      "research": "POST /v1/research",
+      "deep-research": "POST /v1/deep-research",
+      "agent": "POST /v1/agent",
+      "deep-research-stream": "POST /v1/deep-research/stream",
+      "agent-stream": "POST /v1/agent/stream",
+      "extract": "POST /v1/extract",
+      "monitor": "POST /v1/monitor",
+      "transcript": "POST /v1/transcript",
+      "logs": "GET /v1/logs",
+      "stats": "GET /v1/stats"
+    },
+    "activity_log": {
+      "logs": "GET /v1/logs",
+      "stats": "GET /v1/stats",
+      "note": "Nhật ký hoạt động ghi vào SQLite (bảng events, TTL 7 ngày). Tham số logs: kind, level, request_id, since, until, limit. Tham số stats: window (vd 24h, 90m, 7d).",
+      "auth": "ANGLER_API_KEY (cổng toàn cục)"
+    }
+  },
+  "backends": {
+    "searxng": {
+      "role": "metasearch",
+      "base": "/searxng",
+      "ui": "/searxng/",
+      "search_json": "/searxng/search?q=docker&format=json",
+      "config": "/searxng/config",
+      "opensearch": "/searxng/opensearch.xml",
+      "note": "Không có OpenAPI (không phải REST framework). Dùng query param format=json để lấy JSON."
+    },
+    "crawl4ai": {
+      "role": "crawler / scraper engine",
+      "base": "/crawl4ai",
+      "openapi": "/crawl4ai/openapi.json",
+      "swagger_ui": "/crawl4ai/docs",
+      "redoc": "/crawl4ai/redoc",
+      "health": "/crawl4ai/health"
+    },
+    "flaresolverr": {
+      "role": "cloudflare / anti-bot bypass",
+      "base": "/flaresolverr",
+      "example": "POST /flaresolverr/v1",
+      "note": "Không có OpenAPI. Mọi lệnh là POST /flaresolverr/v1 với body {cmd: ...}."
+    }
+  }
+}

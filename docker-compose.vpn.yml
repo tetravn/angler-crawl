@@ -1,0 +1,32 @@
+# ─── Override BẬT VPN egress (opt-in) ────────────────────────────────────
+# Dùng:  docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+# Tắt VPN: chạy lại CHỈ với docker-compose.yml (docker compose up -d).
+# Cần điền .env (xem .env.example): WIREGUARD_PRIVATE_KEY, VPN_COUNTRIES.
+#
+# gluetun làm HTTP proxy provider (cổng 8888) tunnel qua NordVPN/WireGuard. App chọn
+# egress theo từng request (field "egress": "vpn"). Chưa cấu hình/không reachable →
+# fail-open về direct (xem firecrawl-shim/app/egress.py).
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - VPN_SERVICE_PROVIDER=nordvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - SERVER_COUNTRIES=${VPN_COUNTRIES:-}
+      - HTTPPROXY=on            # HTTP proxy nội bộ cổng 8888, tunnel qua VPN
+      - FIREWALL=on             # kill-switch: VPN rớt → chặn (không rò IP thật)
+      - HTTP_CONTROL_SERVER_ADDRESS=:8000
+    expose:
+      - "8888"
+    restart: unless-stopped
+
+  # Trỏ VPN_PROXY_URL của shim vào gluetun → egress="vpn" dùng proxy này.
+  firecrawl-shim:
+    environment:
+      - VPN_PROXY_URL=http://gluetun:8888
+    depends_on:
+      - gluetun

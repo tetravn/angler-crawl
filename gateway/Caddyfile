@@ -1,0 +1,87 @@
+# Gateway — gom các service về 1 port (Caddy reverse proxy theo path-prefix).
+# handle_path tự strip prefix → service nhận đúng path native của nó.
+#   /searxng/...      → searxng:8080      (vd: /searxng/search?q=...&format=json)
+#   /crawl4ai/...     → crawl4ai:11235    (REST API của crawl4ai)
+#   /flaresolverr/... → flaresolverr:8191 (vd: /flaresolverr/v1)
+#   /firecrawl/...    → firecrawl-shim:8000 (API Firecrawl: /firecrawl/v1/scrape ...)
+:80 {
+	# Cổng API key (tuỳ chọn).
+	# Đặt ANGLER_API_KEY trong .env để bật. Không đặt thì mở như cũ, chỉ dùng
+	# trong mạng local, đúng thiết kế mặc định.
+	# Khi bật, mọi request thiếu hoặc sai key đều bị chặn và chỉ nhận thông điệp
+	# báo cần key, kể cả /docs, /openapi.json, / và /manifest.json. Agent có key
+	# (gửi header Authorization: Bearer <key>) thì dò API và gọi bình thường.
+	@unauthed expression `{env.ANGLER_API_KEY} != "" && {http.request.header.Authorization} != "Bearer "+{env.ANGLER_API_KEY}`
+	handle @unauthed {
+		header Content-Type application/json
+		respond `{"error":"Angler: cần API key. Gửi header: Authorization: Bearer <key>"}` 401
+	}
+
+	handle_path /searxng/* {
+		reverse_proxy searxng:8080
+	}
+	handle_path /crawl4ai/* {
+		reverse_proxy crawl4ai:11235
+	}
+	handle_path /flaresolverr/* {
+		reverse_proxy flaresolverr:8191
+	}
+	# Firecrawl: SDK build URL bằng absolute path (/v1/.. /v2/..) nên path-prefix
+	# bị drop. Vì vậy mount shim ở GỐC gateway cho /v1 + /v2 (giữ nguyên path).
+	# → agent chỉ cần FIRECRAWL_API_URL=http://localhost:17300
+	handle /v1/* {
+		reverse_proxy firecrawl-shim:8000
+	}
+	handle /v2/* {
+		reverse_proxy firecrawl-shim:8000
+	}
+	# Vẫn giữ /firecrawl/* (strip prefix) cho gọi tay / debug.
+	handle_path /firecrawl/* {
+		reverse_proxy firecrawl-shim:8000
+	}
+
+	# ── Tài liệu API ở GỐC (URL ngắn, đoán được) → shim tự sinh OpenAPI ──
+	# FastAPI phục vụ /openapi.json, /docs (Swagger UI), /redoc tại root của nó.
+	handle /openapi.json {
+		reverse_proxy firecrawl-shim:8000
+	}
+	handle /docs {
+		reverse_proxy firecrawl-shim:8000
+	}
+	handle /docs/* {
+		reverse_proxy firecrawl-shim:8000
+	}
+	handle /redoc {
+		reverse_proxy firecrawl-shim:8000
+	}
+
+	# ── Discovery cho LLM agent ──
+	# /llms.txt: mô tả ngắn dạng markdown cho LLM (người cũng đọc được).
+	handle /llms.txt {
+		root * /srv
+		file_server
+	}
+	# /manifest.json: mục lục máy-đọc toàn stack (truy cập trực tiếp).
+	handle /manifest.json {
+		root * /srv
+		file_server
+	}
+
+	# ── Trang gốc: content negotiation ──
+	# Agent gửi Accept: application/json → trả manifest máy-đọc.
+	# Trình duyệt (text/html) → trả landing page tĩnh.
+	@agent_root {
+		path /
+		header Accept *application/json*
+	}
+	handle @agent_root {
+		root * /srv
+		rewrite * /manifest.json
+		file_server
+	}
+	handle / {
+		root * /srv
+		rewrite * /index.html
+		file_server
+	}
+}

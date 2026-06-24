@@ -1,0 +1,181 @@
+# ─── Angler — Search + Crawl research gateway ─────────────────────────
+# Tất cả gom sau 1 gateway Caddy — chỉ MỘT port ra ngoài: 17300
+#   http://localhost:17300/searxng/...       → search (json: /searxng/search?q=...&format=json)
+#   http://localhost:17300/crawl4ai/...      → crawl/extract
+#   http://localhost:17300/flaresolverr/v1   → cloudflare bypass
+#   http://localhost:17300/v1/* , /v2/*      → API tương thích Firecrawl (firecrawl-shim)
+# 3 service backend là internal-only (không publish port riêng).
+#
+# Dựng:  docker compose up -d
+# Xoá:   docker compose down -v
+# Logs:  docker compose logs -f
+
+name: angler
+
+services:
+  # ─────────────────────────────────────────────────────────────────
+  # SearXNG — Metasearch Engine
+  # ─────────────────────────────────────────────────────────────────
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    # Internal-only — truy cập qua gateway: http://localhost:17300/searxng/...
+    expose:
+      - "8080"
+    env_file: ./searxng/.env
+    volumes:
+      - ./searxng/core-config/:/etc/searxng/:Z
+      - searxng-cache:/var/cache/searxng/
+    healthcheck:
+      # Image searxng không có curl/wget — chỉ có python3. Dùng /healthz (nhẹ,
+      # không chạy search thật trên các engine mỗi 30s).
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────────────────────────────────
+  # Crawl4AI — AI Web Crawler & Scraper (extract)
+  # ─────────────────────────────────────────────────────────────────
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: crawl4ai
+    restart: unless-stopped
+    # Internal-only — truy cập qua gateway: http://localhost:17300/crawl4ai/...
+    expose:
+      - "11235"
+    shm_size: "1gb"
+    environment:
+      - CRAWL4AI_API_KEY=
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────
+  # FlareSolverr — Cloudflare / Anti-bot bypass proxy
+  # ─────────────────────────────────────────────────────────────────
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    # Internal-only — truy cập qua gateway: http://localhost:17300/flaresolverr/v1
+    expose:
+      - "8191"
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8191/v1", "-H", "Content-Type: application/json", "-d", '{"cmd":"sessions.list"}']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    shm_size: "512mb"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Firecrawl-shim — API tương thích Firecrawl, ruột là Crawl4AI + FlareSolverr
+  # Cho agent chỉ-biết-Firecrawl dùng được mà không sửa code.
+  # ─────────────────────────────────────────────────────────────────
+  firecrawl-shim:
+    build: ./firecrawl-shim
+    container_name: firecrawl-shim
+    restart: unless-stopped
+    # Internal-only — truy cập qua gateway: http://localhost:17300/firecrawl/v1/...
+    expose:
+      - "8000"
+    environment:
+      - CRAWL4AI_URL=http://crawl4ai:11235
+      - FLARESOLVERR_URL=http://flaresolverr:8191
+      - SEARXNG_URL=http://searxng:8080
+      - JOBS_DB_PATH=/data/jobs.db
+      # Bảo vệ IP / tiết kiệm (đều có default hợp lý, chỉ chỉnh khi cần):
+      #   CRAWL4AI_CACHE_MODE=ENABLED   # dùng cache Crawl4AI (BYPASS = luôn tải mới)
+      #   SCRAPE_CACHE_TTL=600          # cache RAM kết quả scrape (giây); 0 = tắt
+      #   SCRAPE_CACHE_MAX=128          # số entry tối đa của cache
+      #   PER_DOMAIN_DELAY_MS=500       # giãn nhịp giữa 2 request cùng domain (ms); 0 = tắt
+      #   FS_DOMAIN_TTL=1800            # nhớ "domain cần FlareSolverr" (giây); 0 = tắt
+      # Cấu hình LLM (OpenAI-compatible) để bật /v1/extract — bỏ trống = extract báo lỗi.
+      - LLM_BASE_URL=http://litellm:4000/v1
+      - LLM_MODEL=angler-smart
+      # - LLM_API_KEY=        # để rỗng: litellm internal, không auth
+      # =1 (mặc định): gửi response_format json_object. =0 cho model "thinking" (Qwen3 reasoning)
+      # vì format:json làm content rỗng — đặt LLM_JSON_NATIVE=0 trong .env khi dùng model như vậy.
+      - LLM_JSON_NATIVE=${LLM_JSON_NATIVE:-1}
+      # Ghi log hoạt động vào SQLite + stdout. LOG_DB_LEVEL=DEBUG để lưu cả chi tiết.
+      - LOG_DB_ENABLED=${LOG_DB_ENABLED:-1}
+      - LOG_DB_LEVEL=${LOG_DB_LEVEL:-INFO}
+      - LOG_TTL_SECONDS=${LOG_TTL_SECONDS:-604800}
+    volumes:
+      # Lưu job crawl (SQLite) để sống sót qua restart.
+      - firecrawl-jobs:/data
+    depends_on:
+      - crawl4ai
+      - flaresolverr
+      - searxng
+      - litellm
+
+  # ─────────────────────────────────────────────────────────────────
+  # LiteLLM — router LLM OpenAI-compatible (local Ollama + cloud free-tier)
+  # Cổng vào duy nhất cho LLM của shim. Inert tới khi cấu hình provider.
+  # ─────────────────────────────────────────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    restart: unless-stopped
+    expose:
+      - "4000"
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # cho Ollama trên host (Linux compat; Mac có sẵn)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────────────────────────────────
+  # Gateway — Caddy reverse proxy, gom các service về 1 port (17300)
+  # ─────────────────────────────────────────────────────────────────
+  gateway:
+    image: docker.io/caddy:2-alpine
+    container_name: gateway
+    restart: unless-stopped
+    ports:
+      # Port ra ngoài đổi được qua .env (ANGLER_PORT); mặc định 17300.
+      - "${ANGLER_PORT:-17300}:80"
+    environment:
+      # Cổng API key: đặt ANGLER_API_KEY trong .env để bật, để trống thì mở (local).
+      - ANGLER_API_KEY=${ANGLER_API_KEY:-}
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:Z
+      # Trang tĩnh discovery: landing HTML, llms.txt, manifest.json (read-only).
+      - ./gateway/site:/srv:ro,Z
+    depends_on:
+      - searxng
+      - crawl4ai
+      - flaresolverr
+      - firecrawl-shim
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  searxng-cache:
+  firecrawl-jobs:

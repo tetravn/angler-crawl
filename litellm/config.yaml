@@ -1,0 +1,50 @@
+# litellm/config.yaml — TỰ SINH bởi scripts/refresh-litellm-free.py (skip-worktree, local-only).
+# App gọi tên ảo angler-fast/angler-smart; litellm route sang free model thật + fallback local,
+# trả response dán nhãn đúng tên ảo. ĐỪNG sửa tay — chạy lại script để cập nhật pool.
+model_list:
+  - model_name: angler-smart
+    litellm_params:
+      model: openrouter/openai/gpt-oss-120b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: angler-fast
+    litellm_params:
+      model: openrouter/openai/gpt-oss-20b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-nvidia-nemotron-3-super-120b-a12b-free
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-super-120b-a12b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-nvidia-nemotron-3-ultra-550b-a55b-free
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-google-gemma-4-31b-it-free
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-google-gemma-4-26b-a4b-it-free
+    litellm_params:
+      model: openrouter/google/gemma-4-26b-a4b-it:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-nvidia-nemotron-nano-12b-v2-vl-free
+    litellm_params:
+      model: openrouter/nvidia/nemotron-nano-12b-v2-vl:free
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: angler-smart-local
+    litellm_params:
+      model: ollama/qwen3.5:9b
+      api_base: http://100.122.140.63:11434
+  - model_name: angler-fast-local
+    litellm_params:
+      model: ollama/qwen3.5:9b
+      api_base: http://100.122.140.63:11434
+
+router_settings:
+  num_retries: 2
+  allowed_fails: 3
+  cooldown_time: 30
+  timeout: 25            # cắt con treo → kích hoạt fallback (free model hay hang)
+  fallbacks: [{"angler-smart": ["or-nvidia-nemotron-3-super-120b-a12b-free", "or-nvidia-nemotron-3-ultra-550b-a55b-free", "or-google-gemma-4-31b-it-free", "angler-fast", "or-google-gemma-4-26b-a4b-it-free", "angler-smart-local"]}, {"angler-fast": ["or-google-gemma-4-31b-it-free", "or-google-gemma-4-26b-a4b-it-free", "or-nvidia-nemotron-nano-12b-v2-vl-free", "angler-smart", "angler-fast-local"]}]
+
+litellm_settings:
+  drop_params: true
