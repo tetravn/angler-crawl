@@ -145,6 +145,14 @@ RANK_QM_TARGET = float(os.environ.get("RANK_QM_TARGET", "0.34"))
 RANK_MMR_LAMBDA = float(os.environ.get("RANK_MMR_LAMBDA", "0.7"))
 RANK_DOMAIN_CAP = int(os.environ.get("RANK_DOMAIN_CAP", "3"))
 
+# ─── Lọc gibberish/spam nội dung (#6) ───────────────────────────────────
+# Loại kết quả có snippet là chữ bịa kiểu lorem-ipsum (đủ dài mà gần như không chứa từ
+# thật của ngôn ngữ web phổ biến nào). Conservative để tránh oan nội dung thật/kỹ thuật:
+# chỉ phán khi >= MIN_WORDS từ và known-word rate < KNOWN_RATIO. Đặt FILTER=0 để tắt.
+GIBBERISH_FILTER = os.environ.get("GIBBERISH_FILTER", "1") not in ("0", "false", "False", "")
+GIBBERISH_MIN_WORDS = int(os.environ.get("GIBBERISH_MIN_WORDS", "8"))
+GIBBERISH_KNOWN_RATIO = float(os.environ.get("GIBBERISH_KNOWN_RATIO", "0.06"))
+
 # ─── Query-intent: phân tích ý định truy vấn (ngôn ngữ/địa lý các bên) ────
 # Dùng LLM phân tích intent, fail-open về heuristic.
 INTENT_USE_LLM = os.environ.get("INTENT_USE_LLM", "1") not in ("0", "false", "")

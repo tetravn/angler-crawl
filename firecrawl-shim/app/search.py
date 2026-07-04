@@ -10,7 +10,7 @@ Chỉnh qua SEARCH_CATEGORIES, RANK_* trong config.
 """
 import asyncio
 
-from . import applog, clients, query_intent, ranking, scrape as scrape_mod
+from . import applog, clients, query_intent, ranking, research, scrape as scrape_mod
 from .config import CRAWL_CONCURRENCY, SEARCH_CATEGORIES
 
 
@@ -29,6 +29,7 @@ async def search(
     pool = max(limit * 3, 30) if limit else 0
     applog.event("search", "search", query=query, categories=cats, lang=lang, limit=limit)
     raw = await clients.searxng_search(query, limit=pool, lang=lang, categories=cats)
+    raw = [r for r in raw if not research.is_gibberish(r.get("content"))]   # #6: loại spam/gibberish
     try:
         intent = await query_intent.analyze_intent(query)
     except Exception:

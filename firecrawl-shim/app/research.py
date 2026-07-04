@@ -12,11 +12,13 @@ Trục đa dạng:
   cho nguồn bị stub để không âm thầm biến mất.
 """
 import asyncio
+import re
 from collections import Counter
 from urllib.parse import urlparse
 
 from . import applog, clients, query_intent, ranking, scrape as scrape_mod
-from .config import CRAWL_CONCURRENCY
+from .config import (CRAWL_CONCURRENCY, GIBBERISH_FILTER, GIBBERISH_MIN_WORDS,
+                     GIBBERISH_KNOWN_RATIO)
 
 _ACADEMIC = (
     "arxiv.org", "ncbi.nlm.nih.gov", "pubmed", "doi.org", "sciencedirect.com",
@@ -55,6 +57,55 @@ def is_low_value(url: str) -> bool:
     """True nếu URL thuộc nguồn vô giá trị làm bằng chứng (social/chat/từ điển/lịch)."""
     d = _domain(url)
     return any(j in d for j in _LOW_VALUE)
+
+
+# Từ hàm + từ phổ biến của các ngôn ngữ web chính. Văn bản thật (kể cả kỹ thuật) hầu như luôn
+# chứa vài từ trong này; spam kiểu lorem-ipsum (từ bịa) thì gần như 0. Set tự khử trùng lặp.
+_COMMON_WORDS = frozenset({
+    # English
+    "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "is", "are", "was",
+    "were", "be", "by", "at", "from", "as", "that", "this", "it", "you", "your", "we", "our",
+    "how", "what", "not", "can", "will", "about", "more", "use", "best", "guide", "free",
+    "online", "new", "review", "price", "server", "how", "than", "into", "out",
+    # Vietnamese
+    "và", "của", "là", "các", "một", "những", "để", "cho", "với", "có", "được", "không", "người",
+    "này", "khi", "trong", "tại", "giá", "rẻ", "tốc", "độ", "cao", "hỗ", "trợ", "cài", "đặt",
+    "thuê", "máy", "chủ", "miễn", "phí", "hướng", "dẫn", "dịch", "vụ", "như", "thế", "nào", "bạn",
+    # Spanish / Portuguese / Italian
+    "el", "la", "los", "las", "que", "y", "en", "un", "una", "por", "con", "para", "se", "su",
+    "es", "como", "del", "o", "os", "em", "do", "da", "não", "mais", "você", "il", "di", "che",
+    "non", "gli", "alla", "dei",
+    # French
+    "le", "les", "des", "et", "une", "pour", "dans", "avec", "sur", "par", "comment", "au", "aux",
+    "ce", "vous",
+    # German
+    "der", "die", "das", "und", "den", "von", "zu", "mit", "ist", "ein", "eine", "für", "auf",
+    "als", "im", "wie", "sie", "sich",
+    # Indonesian / Malay
+    "yang", "dan", "di", "ke", "dari", "untuk", "dengan", "pada", "ini", "itu", "adalah", "atau",
+    "tidak",
+})
+
+
+def is_gibberish(text: str | None) -> bool:
+    """True nếu snippet là gibberish/spam kiểu lorem-ipsum: đủ dài mà gần như không chứa từ thật
+    của ngôn ngữ web phổ biến nào. Conservative để không oan nội dung thật:
+      - chỉ phán khi text CHỦ YẾU chữ Latin (Ả Rập/CJK/Cyrillic... → bỏ qua);
+      - chỉ phán khi >= GIBBERISH_MIN_WORDS từ (snippet ngắn bỏ qua);
+      - chỉ cờ khi known-word rate < GIBBERISH_KNOWN_RATIO (gần như 0)."""
+    if not GIBBERISH_FILTER or not text:
+        return False
+    letters = re.findall(r"[^\W\d_]", text.lower())
+    if not letters:
+        return False
+    ascii_frac = sum(1 for c in letters if "a" <= c <= "z") / len(letters)
+    if ascii_frac < 0.5:                       # chủ yếu không phải Latin → không đủ cơ sở phán
+        return False
+    words = [w for w in re.findall(r"[^\W\d_]+", text.lower()) if len(w) >= 2]
+    if len(words) < GIBBERISH_MIN_WORDS:
+        return False
+    hits = sum(1 for w in words if w in _COMMON_WORDS)
+    return hits / len(words) < GIBBERISH_KNOWN_RATIO
 
 
 def classify(domain: str, category: str) -> str:
@@ -138,6 +189,8 @@ async def research(
         for r, cat in chunk:
             url = r.get("url")
             if not url or url in seen:
+                continue
+            if is_gibberish(r.get("content")):        # #6: loại snippet spam/gibberish
                 continue
             dom = _domain(url)
             if per_domain[dom] >= max_per_domain:

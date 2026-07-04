@@ -224,6 +224,8 @@ async def _run(job_id: str, params: dict, emit=None) -> None:
                         continue
                     if research_mod.is_low_value(url):
                         continue
+                    if research_mod.is_gibberish(r.get("content")):   # #6: loại spam/gibberish
+                        continue
                     cand_seen.add(url)
                     candidates.append(r)
             ranked = ranking.rank(candidates, intent, params["maxScrapePerIteration"], query=query)
