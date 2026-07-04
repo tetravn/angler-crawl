@@ -207,6 +207,28 @@ async def scrape(
     if not (data.get("metadata") or {}).get("source") and transform.is_cloudflare_blocked(result):
         data.setdefault("metadata", {})["blocked"] = True
 
+    # #1: trang lỗi interstitial của Chromium (ERR_*, HTTP ERROR 4xx/5xx) bị crawl4ai bắt
+    # làm nội dung (status 200 + ~500KB DOM lỗi). KHÔNG phát cái DOM đó làm markdown: thử
+    # external fallback (nếu bật) rồi đánh dấu blocked + dọn nội dung. Bỏ qua nếu data đã
+    # đến từ fallback ngoài (đã có nội dung thật, result cũ vẫn là trang lỗi).
+    if transform.is_error_page(result) and not (data.get("metadata") or {}).get("source"):
+        applog.event("scrape", "Trang lỗi trình duyệt (interstitial) — không phải nội dung",
+                     level=logging.WARNING, url=url, domain=_domain(url))
+        ext = await _external_fallback(url, eff_fb)
+        if ext is not None:
+            data = ext
+            if any(f != "markdown" for f in formats):
+                data.setdefault("metadata", {})["partial"] = True
+        else:
+            meta = data.setdefault("metadata", {})
+            meta["blocked"] = True
+            meta["error"] = "navigation_error"      # trang lỗi trình duyệt, không phải nội dung
+            for k in ("markdown", "html", "rawHtml"):
+                if k in data:
+                    data[k] = ""
+            if "links" in data:
+                data["links"] = []
+
     blocked = bool((data.get("metadata") or {}).get("blocked"))
     # Chỉ nhớ "domain cần FlareSolverr" khi FS thật sự RA nội dung (không còn blocked) —
     # tránh ghim domain mà ngay cả FlareSolverr cũng bó tay.

@@ -111,6 +111,31 @@ def is_stub(markdown: str, title: str | None, url: str) -> bool:
     return False
 
 
+# Marker CẤU TRÚC của trang lỗi interstitial Chromium (chrome-error://chromewebdata).
+# id="main-frame-error" + class="neterror" là định danh nội bộ của Chromium — KHÔNG xuất
+# hiện ở trang thật, kể cả bài viết BÀN VỀ lỗi (bài viết chỉ chứa CHỮ "ERR_..."). Nhờ vậy
+# nhận diện chính xác, không oan.
+_CHROME_ERROR_MARKERS = ("main-frame-error", "neterror", "interstitial-wrapper")
+
+
+def is_error_page(result: dict | None) -> bool:
+    """True nếu 'trang' thực chất là interstitial lỗi của Chromium (ERR_EMPTY_RESPONSE,
+    HTTP ERROR 4xx/5xx, "This page isn't working"…) bị bắt làm nội dung với status 200.
+
+    Dựa URL chrome-error:// và marker DOM đặc trưng của Chromium → không nhầm với trang
+    thật hay bài viết nói về lỗi."""
+    if not result:
+        return False
+    for u in (result.get("redirected_url"), result.get("url")):
+        if u and str(u).lower().startswith("chrome-error://"):
+            return True
+    html = result.get("html") or result.get("cleaned_html") or ""
+    if not html:
+        return False
+    hlow = html[:20000].lower()
+    return any(m in hlow for m in _CHROME_ERROR_MARKERS)
+
+
 def is_paywall_stub(markdown: str) -> bool:
     """True nếu stub là do paywall/login/geo-block → FlareSolverr KHÔNG giải được.
 
