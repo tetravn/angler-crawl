@@ -226,7 +226,7 @@ async def _run(job_id: str, params: dict, emit=None) -> None:
                         continue
                     cand_seen.add(url)
                     candidates.append(r)
-            ranked = ranking.rank(candidates, intent, params["maxScrapePerIteration"])
+            ranked = ranking.rank(candidates, intent, params["maxScrapePerIteration"], query=query)
             for r in ranked:
                 if job["status"] == "cancelled":
                     return

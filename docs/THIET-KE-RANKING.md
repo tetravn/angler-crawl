@@ -40,12 +40,20 @@ Gộp bằng tổng có trọng số, không phải nhân, để tinh chỉnh t�
 
 ```
 quality(d)  = Σ wᵢ · signalᵢ(d) / Σ wᵢ           # trust, recency, engine, institutional, lang, geo, global_local
-score(d)    = wr · relevance(d) + wq · quality(d)  # cả hai trong [0, 1]
+relevance(d)= (positional(d) + querymatch(d)) / 2  # vị trí SearXNG + khớp nội dung thật
+score(d)    = [wr · relevance(d) + wq · quality(d)] · gate(querymatch(d))
 ```
 
-`relevance(d)` lấy từ thứ hạng gốc của SearXNG, chuẩn hóa về [0, 1] (hạng càng cao điểm càng lớn), có
-thể trộn thêm engine_agreement. `wr` và `wq` cân bằng giữa liên quan thuần và chất lượng nguồn. Mặc
-định nghiêng về liên quan một chút để không bóp méo ý định tìm kiếm.
+`positional(d)` lấy từ thứ hạng gốc của SearXNG (hạng càng cao điểm càng lớn). `querymatch(d)` là tỉ lệ
+token của query xuất hiện trong `title + snippet` (lexical, không cần LLM) — tín hiệu **khớp nội dung
+thật**, tránh cảnh nguồn authority cao nhưng lệch chủ đề vẫn nổi (#4). `wr` và `wq` cân bằng giữa liên
+quan và chất lượng nguồn.
+
+**Query-match gate**: `gate = FLOOR + (1−FLOOR)·min(querymatch/TARGET, 1)` ∈ [FLOOR, 1]. Kết quả có
+`querymatch` = 0 (không token nào của query xuất hiện) bị nhân `FLOOR` (mặc định 0.15) → **chìm mạnh dù
+trust/institutional = 1.0**. `querymatch ≥ TARGET` (mặc định 0.34) thì gate = 1 (không phạt). Khi query
+rỗng/toàn stopword → `querymatch = None`, gate = 1 (giữ hành vi cũ). Chỉnh qua `RANK_QM_GATE_FLOOR`,
+`RANK_QM_TARGET` (đặt FLOOR = 1.0 để tắt gate).
 
 ## Tầng 2: đa dạng hóa list-wise (MMR)
 

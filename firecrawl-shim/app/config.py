@@ -135,6 +135,12 @@ RANK_W_LANGUAGE = float(os.environ.get("RANK_W_LANGUAGE", "0.6"))
 RANK_W_GEO = float(os.environ.get("RANK_W_GEO", "0.4"))
 # Cân giữa relevance gốc (SearXNG) và quality khi gộp điểm point-wise.
 RANK_RELEVANCE_WEIGHT = float(os.environ.get("RANK_RELEVANCE_WEIGHT", "1.0"))
+# Query-match gate (#4): phạt kết quả có nội dung ÍT khớp query — bất kể trust/authority.
+# qm = tỉ lệ token query xuất hiện trong title+snippet. Điểm cuối được nhân với hệ số
+# gate ∈ [FLOOR, 1]: qm=0 → gate=FLOOR (chìm mạnh, kể cả nguồn academic trust=1.0);
+# qm ≥ TARGET → gate=1 (không phạt). Đặt FLOOR=1.0 để tắt gate.
+RANK_QM_GATE_FLOOR = float(os.environ.get("RANK_QM_GATE_FLOOR", "0.15"))
+RANK_QM_TARGET = float(os.environ.get("RANK_QM_TARGET", "0.34"))
 # MMR: lambda càng nhỏ càng ép đa dạng. Cap số kết quả mỗi domain.
 RANK_MMR_LAMBDA = float(os.environ.get("RANK_MMR_LAMBDA", "0.7"))
 RANK_DOMAIN_CAP = int(os.environ.get("RANK_DOMAIN_CAP", "3"))

@@ -6,11 +6,12 @@ Hàm thuần, test offline được. Xem docs/THIET-KE-RANKING.md.
 """
 from datetime import datetime, timezone
 
-from . import research
+from . import excerpt, research
 from .config import (
     RANK_W_TRUST, RANK_W_RECENCY, RANK_W_ENGINE, RANK_W_INSTITUTIONAL,
     RANK_W_GLOBAL_LOCAL, RANK_W_LANGUAGE, RANK_W_GEO,
     RANK_RELEVANCE_WEIGHT, RANK_MMR_LAMBDA, RANK_DOMAIN_CAP,
+    RANK_QM_GATE_FLOOR, RANK_QM_TARGET,
 )
 
 _TRUST = {"academic": 1.0, "official": 0.95, "reference": 0.8,
@@ -120,8 +121,36 @@ def _lang_of(r: dict) -> str | None:
     return lg or None
 
 
-def score_results(raw: list[dict], intent: dict | None) -> list[dict]:
-    """Chấm điểm point-wise. Trả bản copy kèm khóa nội bộ _score/_signals/_sourceType..."""
+def query_match(query: str | None, r: dict) -> float | None:
+    """Tín hiệu khớp-truy-vấn thực sự (#4): tỉ lệ token của query xuất hiện trong
+    title + snippet của kết quả. Trả None khi không đánh giá được (query rỗng / toàn
+    stopword) → khi đó ranking bỏ qua gate, giữ hành vi cũ.
+
+    Dùng chung tokenizer với excerpt.query_terms (lowercase, bỏ stopword, token >= 3 ký tự)
+    để nhất quán. Snippet nằm ở "content" (raw SearXNG) hoặc "description" (items research)."""
+    q = excerpt.query_terms(query or "")
+    if not q:
+        return None
+    text = f"{r.get('title') or ''} {r.get('content') or r.get('description') or ''}"
+    doc = set(excerpt.query_terms(text))
+    if not doc:
+        return 0.0
+    return sum(1 for t in q if t in doc) / len(q)
+
+
+def _qm_gate(qm: float | None) -> float:
+    """Hệ số nhân điểm theo query-match ∈ [FLOOR, 1]. qm=None → 1 (không phạt)."""
+    if qm is None or RANK_QM_TARGET <= 0:
+        return 1.0
+    return RANK_QM_GATE_FLOOR + (1.0 - RANK_QM_GATE_FLOOR) * min(qm / RANK_QM_TARGET, 1.0)
+
+
+def score_results(raw: list[dict], intent: dict | None,
+                  query: str | None = None) -> list[dict]:
+    """Chấm điểm point-wise. Trả bản copy kèm khóa nội bộ _score/_signals/_sourceType...
+
+    `query` (nếu có) bật tín hiệu query-match: thưởng vào relevance + gate hạ điểm cuối
+    cho kết quả off-topic dù trust/authority cao (#4)."""
     n = max(len(raw), 1)
     out: list[dict] = []
     for i, r in enumerate(raw):
@@ -144,11 +173,15 @@ def score_results(raw: list[dict], intent: dict | None) -> list[dict]:
         }
         wsum = sum(_WEIGHTS.values()) or 1.0
         quality = sum(_WEIGHTS[k] * sig[k] for k in sig) / wsum
-        relevance = (n - i) / n
+        positional = (n - i) / n
+        qm = query_match(query, r)
+        # Thưởng khớp nội dung vào relevance (không chỉ vị trí SearXNG); gate sink off-topic.
+        relevance = positional if qm is None else (positional + qm) / 2.0
         score = (RANK_RELEVANCE_WEIGHT * relevance + quality) / (RANK_RELEVANCE_WEIGHT + 1.0)
+        score *= _qm_gate(qm)
         item = dict(r)
-        item.update(_domain=dom, _sourceType=st, _lang=lang,
-                    _signals=sig, _relevance=relevance, _score=score)
+        item.update(_domain=dom, _sourceType=st, _lang=lang, _signals=sig,
+                    _relevance=relevance, _querymatch=qm, _score=score)
         out.append(item)
     return out
 
@@ -192,6 +225,7 @@ def diversify(scored: list[dict], limit: int,
     return selected
 
 
-def rank(raw: list[dict], intent: dict | None, limit: int) -> list[dict]:
+def rank(raw: list[dict], intent: dict | None, limit: int,
+         query: str | None = None) -> list[dict]:
     """Cổng dùng chung: chấm điểm point-wise rồi đa dạng hóa MMR."""
-    return diversify(score_results(raw, intent), limit)
+    return diversify(score_results(raw, intent, query), limit)

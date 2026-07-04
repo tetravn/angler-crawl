@@ -33,7 +33,7 @@ async def search(
         intent = await query_intent.analyze_intent(query)
     except Exception:
         intent = None                       # fail-open: ranking vẫn chạy không intent
-    ranked = ranking.rank(raw, intent, limit or len(raw))
+    ranked = ranking.rank(raw, intent, limit or len(raw), query=query)
     items: list[dict] = [
         {
             "url": r.get("url"),

@@ -158,7 +158,7 @@ async def research(
 
     # Xếp hạng bằng lớp ranking chung (point-wise score + MMR diversify),
     # rồi map về schema output sạch (chỉ giữ các field public, strip field nội bộ _*).
-    ordered = ranking.diversify(ranking.score_results(items, intent), limit)
+    ordered = ranking.diversify(ranking.score_results(items, intent, query), limit)
     items = [{
         "url": r["url"],
         "title": r.get("title"),
