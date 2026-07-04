@@ -40,7 +40,8 @@ services:
   # Crawl4AI — AI Web Crawler & Scraper (extract)
   # ─────────────────────────────────────────────────────────────────
   crawl4ai:
-    image: unclecode/crawl4ai:latest
+    # Pin version: :latest 0.9.0 đổi default bind sang 127.0.0.1 → shim không gọi được (#7).
+    image: unclecode/crawl4ai:0.9.0
     container_name: crawl4ai
     restart: unless-stopped
     # Internal-only — truy cập qua gateway: http://localhost:17300/crawl4ai/...
@@ -49,6 +50,8 @@ services:
     shm_size: "1gb"
     environment:
       - CRAWL4AI_API_KEY=
+      # 0.9.0 bind loopback mặc định → ép gunicorn bind mọi interface để container khác gọi được (#7).
+      - GUNICORN_BIND=0.0.0.0:11235
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:11235/health"]
       interval: 60s
