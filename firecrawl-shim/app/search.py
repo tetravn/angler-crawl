@@ -28,12 +28,18 @@ async def search(
     cats = categories or SEARCH_CATEGORIES
     pool = max(limit * 3, 30) if limit else 0
     applog.event("search", "search", query=query, categories=cats, lang=lang, limit=limit)
-    raw = await clients.searxng_search(query, limit=pool, lang=lang, categories=cats)
+    # #5: chạy SONG SONG searxng + intent (intent không phụ thuộc kết quả search) → tổng thời
+    # gian = max(searxng, intent) thay vì tổng. intent fail-open: lỗi/timeout → None, ranking vẫn chạy.
+    raw, intent = await asyncio.gather(
+        clients.searxng_search(query, limit=pool, lang=lang, categories=cats),
+        query_intent.analyze_intent(query),
+        return_exceptions=True,
+    )
+    if isinstance(raw, BaseException):
+        raise raw                           # searxng hỏng là lỗi thật của /search
+    if isinstance(intent, BaseException):
+        intent = None
     raw = [r for r in raw if not research.is_gibberish(r.get("content"))]   # #6: loại spam/gibberish
-    try:
-        intent = await query_intent.analyze_intent(query)
-    except Exception:
-        intent = None                       # fail-open: ranking vẫn chạy không intent
     ranked = ranking.rank(raw, intent, limit or len(raw), query=query)
     items: list[dict] = [
         {

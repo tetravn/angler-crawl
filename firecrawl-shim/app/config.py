@@ -160,7 +160,9 @@ GIBBERISH_KNOWN_RATIO = float(os.environ.get("GIBBERISH_KNOWN_RATIO", "0.06"))
 # ─── Query-intent: phân tích ý định truy vấn (ngôn ngữ/địa lý các bên) ────
 # Dùng LLM phân tích intent, fail-open về heuristic.
 INTENT_USE_LLM = os.environ.get("INTENT_USE_LLM", "1") not in ("0", "false", "")
-INTENT_TIMEOUT = float(os.environ.get("INTENT_TIMEOUT", "8"))
+# Timeout LLM intent (#5): giữ ngắn để không kéo dài /search — chạy song song với searxng
+# và fail-open về heuristic nếu quá hạn. 4s đủ cho model fast, không thì rớt heuristic.
+INTENT_TIMEOUT = float(os.environ.get("INTENT_TIMEOUT", "4"))
 
 # ─── Activity log (ghi mọi hoạt động xuống SQLite + stdout) ───────────────
 # Bật ghi event xuống bảng `events` (cùng /data/jobs.db). =0 để chỉ ra stdout.

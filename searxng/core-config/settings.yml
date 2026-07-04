@@ -8,6 +8,16 @@ search:
     - html
     - json
 
+# #5: siết timeout engine để /search không chờ engine chậm/treo. request_timeout là hạn
+# mặc định mỗi engine; max_request_timeout là TRẦN CỨNG — không engine nào vượt → tổng
+# thời gian searxng bị chặn ~5s thay vì chờ engine chậm nhất tới ~15s.
+outgoing:
+  request_timeout: 3.0
+  max_request_timeout: 5.0
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+
 server:
   secret_key: "angler-local-dev-key-change-in-prod"
   bind_address: "0.0.0.0"
