@@ -16,6 +16,7 @@ log = logging.getLogger("shim.clients")
 
 from .config import (
     CRAWL4AI_URL,
+    CRAWL4AI_API_TOKEN,
     FLARESOLVERR_URL,
     SEARXNG_URL,
     HTTP_TIMEOUT,
@@ -116,8 +117,13 @@ def _build_crawl_body(
     return body
 
 
+def _c4_headers() -> dict:
+    """Header auth cho crawl4ai (Bearer token) nếu có cấu hình; rỗng thì không gửi."""
+    return {"Authorization": f"Bearer {CRAWL4AI_API_TOKEN}"} if CRAWL4AI_API_TOKEN else {}
+
+
 async def _post_crawl(body: dict) -> list[dict]:
-    r = await _http().post(f"{CRAWL4AI_URL}/crawl", json=body)
+    r = await _http().post(f"{CRAWL4AI_URL}/crawl", json=body, headers=_c4_headers())
     r.raise_for_status()
     data = r.json()
     results = data.get("results") or []
@@ -225,7 +231,7 @@ async def close_session(session_id: str) -> None:
                                "params": {"session_id": session_id, "js_only": True,
                                           "cache_mode": "BYPASS"}},
         }
-        await _http().post(f"{CRAWL4AI_URL}/crawl", json=body)
+        await _http().post(f"{CRAWL4AI_URL}/crawl", json=body, headers=_c4_headers())
     except Exception:
         pass
 

@@ -2,6 +2,10 @@
 import os
 
 CRAWL4AI_URL = os.environ.get("CRAWL4AI_URL", "http://crawl4ai:11235").rstrip("/")
+# Token gửi kèm khi gọi crawl4ai. crawl4ai >=0.9 CHỈ bind mọi interface khi có token
+# (không thì loopback → container khác gọi không được). Phải KHỚP CRAWL4AI_API_TOKEN của
+# service crawl4ai. Rỗng = không gửi auth (chỉ hợp khi crawl4ai loopback/không token).
+CRAWL4AI_API_TOKEN = os.environ.get("CRAWL4AI_API_TOKEN", "")
 FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL", "http://flaresolverr:8191").rstrip("/")
 # SearXNG cho endpoint /v1/search.
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080").rstrip("/")

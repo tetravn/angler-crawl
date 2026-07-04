@@ -49,8 +49,10 @@ services:
       - "11235"
     shm_size: "1gb"
     environment:
-      - CRAWL4AI_API_KEY=
-      # 0.9.0 bind loopback mặc định → ép gunicorn bind mọi interface để container khác gọi được (#7).
+      # 0.9.0 CHỈ bind mọi interface khi có token (không thì entrypoint ép loopback 127.0.0.1
+      # → container khác gọi không được, mọi scrape fail). Token nội bộ (crawl4ai không publish
+      # ra host/Internet), override qua CRAWL4AI_TOKEN. Shim gửi khớp token này (#7).
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_TOKEN:-angler-internal-c4}
       - GUNICORN_BIND=0.0.0.0:11235
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:11235/health"]
@@ -94,6 +96,8 @@ services:
       - "8000"
     environment:
       - CRAWL4AI_URL=http://crawl4ai:11235
+      # Phải KHỚP CRAWL4AI_API_TOKEN của service crawl4ai (#7).
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_TOKEN:-angler-internal-c4}
       - FLARESOLVERR_URL=http://flaresolverr:8191
       - SEARXNG_URL=http://searxng:8080
       - JOBS_DB_PATH=/data/jobs.db
