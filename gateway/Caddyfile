@@ -12,6 +12,10 @@
 	# báo cần key, kể cả /docs, /openapi.json, / và /manifest.json. Agent có key
 	# (gửi header Authorization: Bearer <key>) thì dò API và gọi bình thường.
 	@unauthed expression `{env.ANGLER_API_KEY} != "" && {http.request.header.Authorization} != "Bearer "+{env.ANGLER_API_KEY}`
+	# Health probe cho Docker healthcheck — đặt TRƯỚC gate auth nên không dính API key.
+	handle /healthz {
+		respond "OK" 200
+	}
 	handle @unauthed {
 		header Content-Type application/json
 		respond `{"error":"Angler: cần API key. Gửi header: Authorization: Bearer <key>"}` 401
