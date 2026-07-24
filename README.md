@@ -46,18 +46,14 @@ local cho một người dùng. Khi cần mở ra ngoài thì bật cổng API k
 > Tương thích là *cổng vào*, không phải superset tuyệt đối — vài chỗ Firecrawl cloud
 > còn mạnh hơn (`/extract` cần LLM, `/map` phủ kém hơn). Xem **Ghi chú thiết kế** cuối file.
 
-```
-                         ┌──────────────────────────────────────────────┐
-   AI agent ──:17300──►  │  gateway (Caddy)  — reverse proxy theo path   │
-                         └───┬───────────┬───────────┬───────────┬──────┘
-                             │           │           │           │
-                       /searxng/*   /crawl4ai/*  /flaresolverr/* /v1,/v2,/firecrawl
-                             ▼           ▼           ▼           ▼
-                          searxng    crawl4ai   flaresolverr  firecrawl-shim
-                          (8080)     (11235)      (8191)         (8000)
-                                                                  │
-                                                   gọi nội bộ ──►  crawl4ai + flaresolverr
-```
+<p align="center">
+  <img src="docs/kien-truc.png" alt="Kiến trúc Angler — gateway Caddy định tuyến theo path tới searxng, crawl4ai, flaresolverr, firecrawl-shim" width="820">
+</p>
+
+<!-- Nguồn diagram: docs/kien-truc.drawio (mở bằng draw.io / VS Code Draw.io Integration).
+     Xuất lại PNG: drawio -x -f png -o docs/kien-truc.png --border 12 --scale 2 docs/kien-truc.drawio -->
+
+Firecrawl-shim còn **gọi nội bộ** crawl4ai + flaresolverr để scrape/bypass Cloudflare.
 
 | Service | Vai trò | Nội bộ | Truy cập qua gateway |
 |---|---|---|---|
