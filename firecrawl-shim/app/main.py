@@ -31,7 +31,7 @@ from . import (
     store,
     transcript as transcript_mod,
 )
-from .config import CRAWL_CONCURRENCY, LOG_TTL_SECONDS
+from .config import CRAWL_CONCURRENCY, LOG_TTL_SECONDS, SEARCH_MIN_ENGINES
 from .models import (
     AgentRequest,
     BatchScrapeRequest,
@@ -256,7 +256,7 @@ async def crawl_errors(job_id: str):
 
 
 # ─── /search (qua SearXNG) ──────────────────────────────────────────────
-async def _do_search(body: SearchRequest) -> list[dict]:
+async def _do_search(body: SearchRequest) -> tuple[list[dict], dict]:
     proxy = await egress_mod.resolve_proxy(body.egress)
     opts = body.scrapeOptions.model_dump() if body.scrapeOptions else None
     cats = ",".join(body.categories) if body.categories else None
@@ -266,11 +266,31 @@ async def _do_search(body: SearchRequest) -> list[dict]:
     )
 
 
+def _degraded_fields(health: dict) -> dict:
+    """Trường cảnh báo gắn kèm response khi meta-search tụt dưới ngưỡng engine.
+
+    Không có nó thì caller không có cách nào biết mình đang đọc dữ liệu suy giảm — kết quả
+    ít/lệch trông y hệt "chủ đề này không có nguồn", nên dẫn tới kết luận ngược (#12, #13).
+    Chỉ thêm khoá khi thật sự suy giảm, để response bình thường giữ nguyên schema Firecrawl.
+    """
+    if not health.get("degraded"):
+        return {}
+    n = health.get("answeredCount", 0)
+    return {
+        "degraded": True,
+        "warning": (f"Chỉ {n} engine tìm kiếm trả lời (ngưỡng {SEARCH_MIN_ENGINES}). "
+                    "Kết quả có thể thiếu hoặc lệch — đừng đọc thành 'không có thông tin'."),
+        "engines": health.get("answered", []),
+        "enginesFailed": health.get("failed", []),
+    }
+
+
 @app.post("/v1/search")
 async def search_v1(body: SearchRequest):
     # v1: data là LIST phẳng.
     try:
-        return {"success": True, "data": await _do_search(body)}
+        items, health = await _do_search(body)
+        return {"success": True, "data": items, **_degraded_fields(health)}
     except Exception as exc:
         log.exception("search lỗi")
         applog.event("search", "search lỗi", level=logging.ERROR,
@@ -282,7 +302,8 @@ async def search_v1(body: SearchRequest):
 async def search_v2(body: SearchRequest):
     # v2: SDK mong data là OBJECT {web,news,images}. Ta đổ kết quả vào `web`.
     try:
-        return {"success": True, "data": {"web": await _do_search(body)}}
+        items, health = await _do_search(body)
+        return {"success": True, "data": {"web": items}, **_degraded_fields(health)}
     except Exception as exc:
         log.exception("search lỗi")
         applog.event("search", "search lỗi", level=logging.ERROR,

@@ -89,9 +89,22 @@ DR_MAX_RENDER = int(os.environ.get("DR_MAX_RENDER", "3"))
 # chỉ có một nhãn trục biểu đồ). 2 để một nhãn trục lẻ không che mất việc render.
 DR_MIN_NUMERIC = int(os.environ.get("DR_MIN_NUMERIC", "2"))
 
-# ─── /search: kéo thêm nguồn khoa học + xếp hạng qua lớp ranking chung ──
-# Category SearXNG mà /search quét (mặc định thêm "science" để gồm arxiv/scholar/pubmed...).
-SEARCH_CATEGORIES = os.environ.get("SEARCH_CATEGORIES", "general,science")
+# ─── /search: category SearXNG + cảnh báo suy giảm engine ───────────────
+# Mặc định CHỈ "general". Trước đây thêm "science" cho mọi truy vấn, nhưng category đó là
+# arxiv + google scholar + openaire + pubmed + semantic scholar — đo trên query "hard drive
+# price per TB history chart" thì 19/54 kết quả là bài báo học thuật, gồm cả những bài chỉ
+# trùng token "price"/"trend" mà không liên quan gì (#8). Không phải nguồn rác lọt filter:
+# mình chủ động đi hỏi chúng.
+# Cần nguồn khoa học thì truyền categories=["general","science"] trong request, hoặc dùng
+# /research — nó có danh sách riêng ["general","news","science"] và hỏi science CÓ CHỦ ĐÍCH
+# như một trục chống thiên lệch, không bị ảnh hưởng bởi biến này.
+SEARCH_CATEGORIES = os.environ.get("SEARCH_CATEGORIES", "general")
+
+# Số engine tối thiểu phải trả lời thì kết quả mới coi là đầy đủ. Dưới ngưỡng → cảnh báo
+# WARNING vào activity log và gắn cờ `degraded` vào response. Meta-search tụt về 1-2 engine
+# thì kết quả rỗng/lệch trông y hệt "không có thông tin" — đó là dạng hỏng dẫn tới kết luận
+# ngược, không chỉ bất tiện (#12, #13).
+SEARCH_MIN_ENGINES = int(os.environ.get("SEARCH_MIN_ENGINES", "3"))
 
 # ─── P7 — /monitor (theo dõi thay đổi trang) ─────────────────────────────
 MONITOR_TICK = int(os.environ.get("MONITOR_TICK", "30"))                 # chu kỳ sweeper (giây)

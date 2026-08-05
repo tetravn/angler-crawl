@@ -278,9 +278,24 @@ cả tập):
   biệt so với các kết quả đã chọn, kèm ràng buộc cứng cap mỗi domain. `λ` cao thì đa dạng nhẹ
   (`/search`), `λ` thấp thì ép phủ rộng (`/research`).
 
-`/search` kéo pool rộng hơn `limit` (`max(limit*3, 30)`) với `SEARCH_CATEGORIES` (mặc định
-`general,science`, tức kéo luôn arxiv/scholar/pubmed) để nguồn khoa học không bị cắt trước khi rank,
-rồi mới `ranking.rank` cắt về `limit`.
+`/search` kéo pool rộng hơn `limit` (`max(limit*3, 30)`) với `SEARCH_CATEGORIES` rồi mới
+`ranking.rank` cắt về `limit`.
+
+Mặc định `SEARCH_CATEGORIES` là `general`. Bản trước là `general,science` — kéo luôn arxiv, google
+scholar, openaire, pubmed, semantic scholar cho MỌI truy vấn. Ý định là đa dạng nguồn, nhưng đo trên
+query `hard drive price per TB history chart` thì 19/54 kết quả là bài báo học thuật, gồm cả những
+bài chỉ trùng token `price`/`trend` mà không liên quan gì tới chủ đề. Nguồn học thuật không lọt qua
+filter — mình chủ động đi hỏi chúng (#8). Caller cần thì truyền `categories` rõ ràng; `/research`
+không bị ảnh hưởng vì nó có danh sách riêng `["general","news","science"]` và quét đa category có
+chủ đích như một trục chống thiên lệch.
+
+Mỗi lần gọi SearXNG đều đếm số engine THỰC SỰ trả kết quả (`clients.engine_health`). Dưới
+`SEARCH_MIN_ENGINES` (mặc định 3) thì ghi WARNING vào activity log và gắn `degraded` + `warning` +
+`engines` + `enginesFailed` vào response. Đếm theo kết quả trả về chứ không theo config, vì engine
+hỏng có ba trạng thái: trả kết quả, báo lỗi trong `unresponsive_engines`, và im lặng — bật trong
+config, không trả gì, cũng không báo lỗi. Nhìn `unresponsive_engines` thì tưởng nhóm im lặng vẫn
+khoẻ. Không có tín hiệu này thì meta-search tụt về một engine trong im lặng, và kết quả thiếu trông
+y hệt "chủ đề này không có nguồn" — dạng hỏng dẫn tới kết luận ngược chứ không chỉ bất tiện (#12).
 
 #### Query intent ([query_intent.py](../firecrawl-shim/app/query_intent.py))
 

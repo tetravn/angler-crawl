@@ -325,12 +325,29 @@ curl -X POST "http://localhost:17300/v1/search" \
 | `query` | — | từ khoá (bắt buộc) |
 | `limit` | `10` | số kết quả |
 | `lang` | — | ngôn ngữ (vd `vi`) |
+| `categories` | `["general"]` | category SearXNG cần quét; thêm `"science"` nếu muốn arxiv/scholar/pubmed |
 | `scrapeOptions` | — | nếu có thì **scrape luôn nội dung** mỗi kết quả |
 | `egress` | `null` | chọn đường ra khi scrape kết quả (`vpn`/`proxy`/`direct`); **SearXNG query đi server-wide** (chỉnh ở tầng infra) |
 
 Search đẩy sang SearXNG; có `scrapeOptions` thì mỗi kết quả được scrape (kèm CF bypass).
 Response: `v1` trả về `{"success":true,"data":[{url,title,description,markdown?}]}`;
 `v2` trả về `{"success":true,"data":{"web":[...]}}` (đúng model SDK Firecrawl v4).
+
+Mặc định chỉ quét `general`. Quét thêm `science` cho mọi truy vấn kéo về rất nhiều bài báo học
+thuật không liên quan (hỏi giá ổ cứng ra arxiv), nên nó thành tuỳ chọn thay vì mặc định. Cần đa
+dạng nguồn theo trục học thuật/báo chí thì dùng `/v1/research`.
+
+**Cảnh báo suy giảm.** Khi số engine trả lời tụt dưới `SEARCH_MIN_ENGINES` (mặc định 3), response
+có thêm `degraded: true`, `warning`, `engines`, `enginesFailed`, và activity log ghi một WARNING:
+
+```json
+{"success":true,"data":[...],"degraded":true,
+ "warning":"Chỉ 2 engine tìm kiếm trả lời (ngưỡng 3). Kết quả có thể thiếu hoặc lệch — đừng đọc thành 'không có thông tin'.",
+ "engines":["bing","google cse"],
+ "enginesFailed":[["brave","too many requests"],["duckduckgo","CAPTCHA"]]}
+```
+
+Đủ engine thì response giữ nguyên schema Firecrawl, không thêm khoá nào.
 
 ### 4.5 `POST /v1/batch/scrape` (async) + `GET /v1/batch/scrape/{id}`
 ```bash
