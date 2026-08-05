@@ -58,7 +58,7 @@ Firecrawl-shim còn **gọi nội bộ** crawl4ai + flaresolverr để scrape/by
 | Service | Vai trò | Nội bộ | Truy cập qua gateway |
 |---|---|---|---|
 | **searxng** | Metasearch (JSON API) | `8080` | `/searxng/...` |
-| **crawl4ai** | Crawl/scrape ra markdown | `11235` | `/crawl4ai/...` |
+| **crawl4ai** | Crawl/scrape ra markdown | `11235` | không lộ — gọi qua `/v1/scrape` |
 | **flaresolverr** | Bypass Cloudflare | `8191` | `/flaresolverr/...` |
 | **firecrawl-shim** | API **tương thích Firecrawl**, dịch sang Crawl4AI (+FlareSolverr) | `8000` | `/v1/*`, `/v2/*` (và `/firecrawl/*`) |
 | **gateway** | Caddy reverse proxy | `80` | publish `17300` (đổi qua `ANGLER_PORT`) |
@@ -106,7 +106,6 @@ curl -H "Accept: application/json" "http://localhost:17300/"
 ```
 
 Mỗi service backend cũng tự-mô-tả riêng (manifest trỏ tới hết):
-- **Crawl4AI**: [`/crawl4ai/docs`](http://localhost:17300/crawl4ai/docs) (Swagger), `/crawl4ai/redoc`, `/crawl4ai/openapi.json`
 - **SearXNG**: [`/searxng/`](http://localhost:17300/searxng/) (UI), `/searxng/search?...&format=json`, `/searxng/opensearch.xml` — *không có OpenAPI*
 - **FlareSolverr**: không có OpenAPI — mọi lệnh là `POST /flaresolverr/v1` với body `{cmd: ...}`
 
@@ -189,23 +188,7 @@ Khác: `GET /searxng/healthz` (health), `GET /searxng/config`.
 
 ---
 
-## 2. Crawl4AI — Crawl (API gốc)
-
-`POST /crawl4ai/crawl`
-
-```bash
-curl -X POST "http://localhost:17300/crawl4ai/crawl" \
-  -H "Content-Type: application/json" \
-  -d '{"urls":["https://example.com"]}'
-```
-
-Trả `{"success":true,"results":[{markdown,html,cleaned_html,links,metadata,status_code,...}]}`.
-Hỗ trợ `raw://<html>` thay cho URL, và `crawler_config`/`browser_config` dạng
-`{"type":"...","params":{...}}`. Health: `GET /crawl4ai/health`.
-
----
-
-## 3. FlareSolverr — Bypass Cloudflare
+## 2. FlareSolverr — Bypass Cloudflare
 
 `POST /flaresolverr/v1`
 
@@ -219,7 +202,7 @@ Trả `{"status":"ok","solution":{response:<HTML>,status,cookies,userAgent,...}}
 
 ---
 
-## 4. Firecrawl-shim — API tương thích Firecrawl
+## 3. Firecrawl-shim — API tương thích Firecrawl
 
 Cho agent **chỉ biết Firecrawl** dùng được stack mà không sửa code. Bên trong:
 dịch sang Crawl4AI, **tự bypass Cloudflare qua FlareSolverr** (kể cả khi Crawl4AI

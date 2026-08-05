@@ -48,14 +48,6 @@
       "opensearch": "/searxng/opensearch.xml",
       "note": "Không có OpenAPI (không phải REST framework). Dùng query param format=json để lấy JSON."
     },
-    "crawl4ai": {
-      "role": "crawler / scraper engine",
-      "base": "/crawl4ai",
-      "openapi": "/crawl4ai/openapi.json",
-      "swagger_ui": "/crawl4ai/docs",
-      "redoc": "/crawl4ai/redoc",
-      "health": "/crawl4ai/health"
-    },
     "flaresolverr": {
       "role": "cloudflare / anti-bot bypass",
       "base": "/flaresolverr",

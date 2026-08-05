@@ -139,9 +139,11 @@ Angler phủ gần trọn API Firecrawl, **cộng** các mở rộng riêng (res
 | Service | Đường dẫn qua gateway | Dùng khi |
 |---|---|---|
 | SearXNG | `GET /searxng/search?q=...&format=json` | Tìm kiếm thô, không qua lớp shim |
-| Crawl4AI | `POST /crawl4ai/crawl` | Gọi crawler gốc, cần tham số nâng cao |
 | FlareSolverr | `POST /flaresolverr/v1` | Tự giải Cloudflare một URL cụ thể |
 | Health | `GET /health` | Kiểm tra shim sống |
+
+Engine crawl không có đường trực tiếp — mọi việc cào đi qua `/v1/scrape`. Gọi thẳng engine sẽ bỏ
+qua fallback Cloudflare, phát hiện stub và cờ `blocked`, nên nguồn bị chặn trả về y như trang rỗng.
 
 ### 3.3. Cơ chế chống thiên lệch của `/research` (chi tiết)
 
