@@ -1,4 +1,8 @@
 """Dịch result của Crawl4AI sang schema response của Firecrawl + phát hiện Cloudflare/stub."""
+import json
+import re
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 # Dấu hiệu trang đang bị Cloudflare chặn / hiện challenge.
@@ -179,9 +183,128 @@ def extract_links(result: dict) -> list[str]:
     return deduped
 
 
+_LD_RE = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.I | re.S
+)
+
+# Chỉ lấy các trường dùng được cho metadata bài viết; phần còn lại của JSON-LD bỏ qua.
+_LD_FIELDS = ("datePublished", "dateModified", "author", "headline")
+
+
+def json_ld(html: str) -> dict:
+    """Gom các trường bài viết từ mọi khối <script type="application/ld+json">.
+
+    Nhiều site hiện đại (Gatsby, Next.js) chỉ đặt ngày và tác giả ở JSON-LD chứ không
+    có thẻ meta, nên không đọc chỗ này là mất hẳn dữ liệu dù trang có công bố.
+
+    ponytail: quét bằng regex thay vì parse DOM — shim không có sẵn HTML parser và nội
+    dung thẻ ld+json luôn là text thuần. Đổi sang parser thật nếu gặp trang đặt chuỗi
+    "</script>" bên trong JSON.
+    """
+    out: dict = {}
+    for raw in _LD_RE.findall(html or ""):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        # JSON-LD có thể là 1 node, 1 mảng node, hoặc bọc trong @graph.
+        queue = data if isinstance(data, list) else [data]
+        nodes = []
+        while queue:
+            node = queue.pop(0)
+            if not isinstance(node, dict):
+                continue
+            nodes.append(node)
+            graph = node.get("@graph")
+            if isinstance(graph, list):
+                queue.extend(graph)
+        for node in nodes:
+            for key in _LD_FIELDS:
+                if key not in out and node.get(key):
+                    out[key] = node[key]
+    return out
+
+
+def author_names(value) -> str | None:
+    """`author` của JSON-LD có thể là chuỗi, 1 object, hay mảng object → gộp thành chuỗi tên."""
+    if not value:
+        return None
+    items = value if isinstance(value, list) else [value]
+    names = []
+    for item in items:
+        name = item.get("name") if isinstance(item, dict) else item
+        if name and str(name).strip():
+            names.append(str(name).strip())
+    return ", ".join(names) or None
+
+
+# Thẻ meta ghi ngày theo đủ kiểu; ví dụ Databricks dùng "Mon, 03/30/2026 - 12:43".
+_DATE_FORMATS = (
+    "%a, %m/%d/%Y - %H:%M",
+    "%m/%d/%Y - %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+)
+
+
+def iso_date(value) -> str | None:
+    """Chuẩn hoá ngày về ISO 8601, hoặc None nếu không parse được."""
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        pass
+    try:
+        return parsedate_to_datetime(text).isoformat()
+    except (TypeError, ValueError):
+        pass
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def pick_date(*values) -> str | None:
+    """Lấy giá trị đầu tiên parse được ra ISO, không phải giá trị đầu tiên có mặt.
+
+    JSON-LD thường chuẩn hơn thẻ meta nên đứng trước, nhưng không phải luôn: blog
+    Databricks ghi `"dateModified":"03/31/2026T00:00:00-08:00"` (hỏng) trong khi thẻ
+    meta cùng trang lại đúng. Ưu tiên cứng theo nguồn sẽ vớ phải cái hỏng.
+
+    Không cái nào parse được thì trả chuỗi gốc đầu tiên — mất định dạng còn hơn mất tin.
+    """
+    fallback = None
+    for value in values:
+        if not value:
+            continue
+        if fallback is None:
+            fallback = str(value).strip() or None
+        iso = iso_date(value)
+        if iso:
+            return iso
+    return fallback
+
+
 def to_metadata(result: dict, source_url: str) -> dict:
     m = result.get("metadata") or {}
-    return {
+    # Giữ nguyên mọi thẻ Crawl4AI trích được (og:*, article:*, twitter:*…) như Firecrawl,
+    # rồi phủ thêm các khoá chuẩn hoá ở dưới.
+    meta = {k: v for k, v in m.items() if v is not None}
+
+    ld = json_ld(result.get("html") or "")
+    # JSON-LD trước (thường đã là ISO sẵn), thẻ meta sau — nhưng lấy cái nào parse được
+    # chứ không phải cái nào có trước.
+    published = pick_date(ld.get("datePublished"), m.get("article:published_time"))
+    modified = pick_date(ld.get("dateModified"), m.get("article:modified_time"))
+    author = m.get("author") or author_names(ld.get("author"))
+
+    meta.update({
         "title": m.get("title"),
         "description": m.get("description"),
         "language": m.get("language") or m.get("lang"),
@@ -191,7 +314,18 @@ def to_metadata(result: dict, source_url: str) -> dict:
         "statusCode": result.get("status_code")
         or result.get("redirected_status_code")
         or 200,
-    }
+        # Luôn có mặt kể cả khi rỗng, để caller phân biệt "trang không công bố ngày"
+        # với "shim chưa trích" — thiếu khoá thì không phân biệt được.
+        "publishedTime": published,
+        "modifiedTime": modified,
+        "author": author,
+        "ogTitle": m.get("og:title"),
+        "ogDescription": m.get("og:description"),
+        "ogImage": m.get("og:image"),
+        "ogUrl": m.get("og:url"),
+        "ogSiteName": m.get("og:site_name"),
+    })
+    return meta
 
 
 def to_firecrawl_data(
