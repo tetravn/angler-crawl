@@ -1,10 +1,20 @@
 # Gateway — gom các service về 1 port (Caddy reverse proxy theo path-prefix).
 # handle_path tự strip prefix → service nhận đúng path native của nó.
 #   /searxng/...      → searxng:8080      (vd: /searxng/search?q=...&format=json)
-#   /crawl4ai/...     → crawl4ai:11235    (REST API của crawl4ai)
 #   /flaresolverr/... → flaresolverr:8191 (vd: /flaresolverr/v1)
 #   /firecrawl/...    → firecrawl-shim:8000 (API Firecrawl: /firecrawl/v1/scrape ...)
+#
+# KHÔNG có route tới crawl4ai. Engine chỉ gọi được qua shim (/v1/scrape...) — xem
+# ghi chú ở chỗ đặt route cũ bên dưới.
 :80 {
+	# Access log. Không có nó thì request đi thẳng vào backend không để lại dấu vết
+	# ở đâu cả, và khi backend gây sự cố thì không truy được ai đã gọi (#17).
+	# Ghi ra stdout để Docker lo phần xoay log (giới hạn đặt ở docker-compose.yml).
+	log {
+		output stdout
+		format json
+	}
+
 	# Cổng API key (tuỳ chọn).
 	# Đặt ANGLER_API_KEY trong .env để bật. Không đặt thì mở như cũ, chỉ dùng
 	# trong mạng local, đúng thiết kế mặc định.
@@ -24,9 +34,13 @@
 	handle_path /searxng/* {
 		reverse_proxy searxng:8080
 	}
-	handle_path /crawl4ai/* {
-		reverse_proxy crawl4ai:11235
-	}
+	# Không mở /crawl4ai/* nữa. Đường đó đi thẳng vào engine, bỏ qua toàn bộ xử lý của
+	# shim: fallback FlareSolverr khi bị Cloudflare, phát hiện stub, cờ `blocked`, giãn
+	# nhịp theo domain, giới hạn đồng thời. Nguồn bị chặn đi đường đó trả về y như trang
+	# rỗng — tức là huỷ đúng phần đảm bảo chống thiên lệch mà stack này tồn tại vì nó.
+	# Một burst qua đường này từng làm crawl4ai OOM mà không truy được ai gọi (#17).
+	# Cần tham số nâng cao của crawl4ai thì gọi trong mạng docker (docker exec), đừng mở
+	# lại route. /searxng/* và /flaresolverr/* thì giữ vì shim không thay thế được chúng.
 	handle_path /flaresolverr/* {
 		reverse_proxy flaresolverr:8191
 	}
@@ -41,6 +55,13 @@
 	}
 	# Vẫn giữ /firecrawl/* (strip prefix) cho gọi tay / debug.
 	handle_path /firecrawl/* {
+		reverse_proxy firecrawl-shim:8000
+	}
+
+	# /health của shim. Trước đây không có route: request rơi vào nhánh không-khớp và
+	# nhận 200 rỗng của Caddy, nên endpoint được ghi trong tài liệu mà thật ra chưa bao
+	# giờ chạm tới shim — trông vẫn "sống" vì 200. Catch-all 404 ở cuối làm lộ ra.
+	handle /health {
 		reverse_proxy firecrawl-shim:8000
 	}
 
@@ -87,5 +108,13 @@
 		root * /srv
 		rewrite * /index.html
 		file_server
+	}
+
+	# Bắt mọi path không khớp route nào. Mặc định Caddy trả 200 rỗng, nên một endpoint
+	# đã gỡ (vd /crawl4ai/* cũ) trông y hệt một request thành công không có nội dung —
+	# caller không phân biệt được. Trả 404 kèm thông điệp để chỗ hỏng lộ ra ngay.
+	handle {
+		header Content-Type application/json
+		respond `{"error":"Angler: endpoint không tồn tại. Xem /manifest.json hoặc /docs."}` 404
 	}
 }

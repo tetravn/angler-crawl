@@ -43,8 +43,6 @@ Mỗi service phơi bày tài liệu tự-mô-tả riêng:
 - SearXNG — metasearch. Không có OpenAPI; lấy JSON bằng query param `format=json`.
   - [Search JSON](/searxng/search?q=docker&format=json): `GET /searxng/search?q=...&format=json`
   - [Web UI](/searxng/) · [config JSON](/searxng/config) · [OpenSearch descriptor](/searxng/opensearch.xml)
-- Crawl4AI — engine crawler/scraper, có OpenAPI đầy đủ.
-  - [openapi.json](/crawl4ai/openapi.json) · [Swagger UI](/crawl4ai/docs) · [ReDoc](/crawl4ai/redoc) · [health](/crawl4ai/health)
 - FlareSolverr — bypass Cloudflare/anti-bot. Không có OpenAPI; mọi lệnh là `POST /flaresolverr/v1` với body `{cmd: ...}`.
 
 ## Discovery

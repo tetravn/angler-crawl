@@ -31,8 +31,8 @@ graph TD
   client["AI agent hoặc curl"] -->|":17300"| gw["Gateway Caddy"]
   gw -->|"/v1, /v2, /docs"| shim["firecrawl-shim (FastAPI)"]
   gw -->|"/searxng/*"| sx["SearXNG metasearch"]
-  gw -->|"/crawl4ai/*"| c4["Crawl4AI scrape"]
   gw -->|"/flaresolverr/*"| fs["FlareSolverr giải CF"]
+  c4["Crawl4AI scrape"]
   gw -->|"/ (manifest, landing)"| site["gateway/site tĩnh"]
   shim --> c4
   shim --> fs
@@ -48,8 +48,14 @@ graph TD
 
 Caddy reverse-proxy theo tiền tố path. Có hai kiểu routing, và sự khác biệt là có chủ đích.
 
-Kiểu thứ nhất là `handle_path` cho `/searxng/*`, `/crawl4ai/*`, `/flaresolverr/*`, `/firecrawl/*`.
-Nó cắt tiền tố đi để backend thấy đúng path gốc của nó.
+Kiểu thứ nhất là `handle_path` cho `/searxng/*`, `/flaresolverr/*`, `/firecrawl/*`. Nó cắt tiền tố
+đi để backend thấy đúng path gốc của nó.
+
+Crawl4AI cố tình **không** có route nào. Nó chỉ gọi được từ trong mạng docker, qua shim. Mở đường
+thẳng tới engine đồng nghĩa cho phép bỏ qua toàn bộ xử lý của shim — fallback FlareSolverr, phát
+hiện stub, cờ `blocked`, giãn nhịp theo domain, giới hạn đồng thời — tức là bỏ qua đúng phần đảm
+bảo chống thiên lệch mà stack này tồn tại vì nó. SearXNG và FlareSolverr thì giữ đường trực tiếp
+vì shim không thay thế được chúng, còn `/v1/scrape` thay thế được engine.
 
 Kiểu thứ hai là `handle` cho `/v1/*` và `/v2/*`, và nó không cắt tiền tố. Lý do: Firecrawl SDK dựng
 path tuyệt đối như `/v1/scrape` và bỏ mất base path, nên shim phải mount ở gốc gateway cho `/v1` và
