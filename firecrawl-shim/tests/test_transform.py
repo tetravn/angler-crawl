@@ -62,3 +62,73 @@ def test_markdown_of_dung_fit_khi_du_lon():
     fit = "y" * 2000   # >= 30% raw
     result = {"markdown": {"raw_markdown": raw, "fit_markdown": fit}}
     assert transform.markdown_of(result, True) == fit
+
+
+# ── to_metadata: giữ đủ thẻ meta + trích ngày/tác giả (#14) ──────────────────
+_LD_DATABRICKS = """
+<html><head>
+<meta property="article:published_time" content="Mon, 03/30/2026 - 12:43"/>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting",
+ "datePublished":"2026-03-30T12:43:00+0000",
+ "author":[{"@type":"Person","name":"Ippokratis Pandis"},
+           {"@type":"Person","name":"Nikita Shamgunov"},
+           {"@type":"Person","name":"Reynold Xin"}]}
+</script>
+</head><body>x</body></html>
+"""
+
+
+def test_metadata_giu_nguyen_the_og_va_article():
+    # Regression #14: to_metadata từng hardcode 7 khoá rồi vứt hết og:*/article:*.
+    result = {"metadata": {"title": "T", "og:image": "https://x/i.png",
+                           "article:published_time": "2026-03-30T12:43:00+0000"}}
+    meta = transform.to_metadata(result, "https://x/")
+    assert meta["og:image"] == "https://x/i.png"
+    assert meta["ogImage"] == "https://x/i.png"
+
+
+def test_metadata_uu_tien_json_ld_cho_ngay_va_tac_gia():
+    # Thẻ meta ghi ngày kiểu địa phương, JSON-LD ghi ISO → phải lấy ISO.
+    result = {"metadata": {"article:published_time": "Mon, 03/30/2026 - 12:43",
+                           "author": None},
+              "html": _LD_DATABRICKS}
+    meta = transform.to_metadata(result, "https://x/")
+    assert meta["publishedTime"].startswith("2026-03-30T12:43:00")
+    assert meta["author"] == "Ippokratis Pandis, Nikita Shamgunov, Reynold Xin"
+
+
+def test_metadata_parse_duoc_the_meta_khi_khong_co_json_ld():
+    result = {"metadata": {"article:published_time": "Mon, 03/30/2026 - 12:43"}}
+    meta = transform.to_metadata(result, "https://x/")
+    assert meta["publishedTime"] == "2026-03-30T12:43:00"
+
+
+def test_metadata_khoa_luon_ton_tai_khi_trang_khong_co_ngay():
+    # Phân biệt "trang không công bố ngày" với "shim chưa trích" → khoá phải có, giá trị None.
+    meta = transform.to_metadata({"metadata": {"title": "T"}}, "https://x/")
+    assert meta["publishedTime"] is None and meta["author"] is None
+    assert "publishedTime" in meta and "author" in meta
+
+
+def test_iso_date_tra_none_khi_khong_parse_duoc():
+    assert transform.iso_date("hôm qua") is None
+    assert transform.iso_date(None) is None
+
+
+def test_pick_date_bo_qua_nguon_hong_lay_nguon_parse_duoc():
+    # Regression: JSON-LD của Databricks ghi hỏng ("03/31/2026T00:00:00-08:00") còn thẻ
+    # meta cùng trang lại đúng → phải lấy thẻ meta, không phải cái đứng trước.
+    assert transform.pick_date("03/31/2026T00:00:00-08:00",
+                               "Tue, 03/31/2026 - 17:15") == "2026-03-31T17:15:00"
+
+
+def test_pick_date_giu_chuoi_goc_khi_khong_cai_nao_parse_duoc():
+    assert transform.pick_date(None, "hôm qua") == "hôm qua"
+    assert transform.pick_date(None, None) is None
+
+
+def test_json_ld_doc_duoc_graph_va_bo_qua_json_hong():
+    html = ('<script type="application/ld+json">{"@graph":[{"datePublished":"2026-01-02"}]}</script>'
+            '<script type="application/ld+json">{hỏng</script>')
+    assert transform.json_ld(html)["datePublished"] == "2026-01-02"
