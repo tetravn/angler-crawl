@@ -47,6 +47,10 @@ services:
   # (xem SEARXNG_URL của shim và SEARXNG_UPSTREAM của gateway bên dưới).
   searxng:
     network_mode: "service:gluetun"
+    # Lưu ý: docker từ chối "conflicting options: port exposing and the container type
+    # network mode" nếu service vừa expose cổng vừa mượn namespace container khác. Vì
+    # Compose GỘP list `expose` (override không xoá được), `expose` đã được bỏ khỏi
+    # docker-compose.yml; cổng 8080 khai ở gluetun bên trên.
     depends_on:
       - gluetun
 

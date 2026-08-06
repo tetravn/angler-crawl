@@ -33,8 +33,11 @@ services:
     # Đỉnh đo được 226 MiB dưới tải search song song. 512m cho biên ~2.3x.
     mem_limit: 512m
     # Internal-only — truy cập qua gateway: http://localhost:17300/searxng/...
-    expose:
-      - "8080"
+    # KHÔNG khai báo expose ở đây: override VPN cho searxng mượn network namespace của
+    # gluetun, mà docker từ chối "port exposing + container network mode" cùng lúc — và
+    # `expose` không xoá được từ file override (Compose GỘP list, không thay thế). Bỏ đi
+    # cũng không mất gì: trong mạng docker do compose tạo, container gọi nhau không cần
+    # expose; nó chỉ là metadata. Cổng 8080 được khai ở gluetun khi chạy chế độ VPN.
     env_file: ./searxng/.env
     volumes:
       - ./searxng/core-config/:/etc/searxng/:Z
