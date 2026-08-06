@@ -1,7 +1,19 @@
 # ─── Override BẬT VPN egress + xoay IP (opt-in) ──────────────────────────
 # Dùng:  docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
 # Tắt VPN: chạy lại CHỈ với docker-compose.yml (docker compose up -d).
-# Cần điền .env (xem .env.vpn.example): WIREGUARD_PRIVATE_KEY, VPN_COUNTRIES.
+# Cần điền .env (xem .env.example): NORDVPN_USER, NORDVPN_PASS, VPN_COUNTRIES.
+#
+# ── Vì sao OpenVPN/TCP chứ không phải WireGuard ──
+# Đo trên chính máy đang chạy stack (06/08/2026): WireGuard bắt tay xong nhưng KHÔNG
+# truyền dữ liệu — `PMTUD failed with both ICMP and TCP`, mọi lookup trong tunnel
+# `i/o timeout`, phải restart 24–31 lần vẫn `unhealthy`; ép WIREGUARD_MTU=1280 không
+# cứu. Máy này mất 13–17% gói và bị nhà cung cấp chặn UDP/123, trong khi TCP đo được
+# 5/5. WireGuard CHỈ chạy UDP ⇒ sai công cụ. OpenVPN/TCP nối xong trong ~10 giây.
+#
+# Cũng đã loại: HTTP proxy (proxy_ssl cổng 89) và SOCKS5 của NordVPN. Endpoint còn
+# sống và bắt tay TLS được, nhưng TỪ CHỐI cả service credentials hợp lệ (407 +
+# `Proxy-Authenticate: Basic realm="NordVPN"`) — cùng credential đó OpenVPN nhận
+# ngay. Tức dịch vụ proxy đã ngưng trên thực tế dù tài liệu vẫn còn hướng dẫn.
 #
 # Hai đường ra khác nhau, cố ý:
 #
@@ -25,11 +37,17 @@ services:
       - /dev/net/tun:/dev/net/tun
     environment:
       - VPN_SERVICE_PROVIDER=nordvpn
-      - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
-      # Để trống = chọn trong TOÀN BỘ server của NordVPN. Càng rộng thì xoay IP
-      # càng đa dạng; thu hẹp (vd "Singapore,Japan") nếu cần độ trễ thấp.
-      - SERVER_COUNTRIES=${VPN_COUNTRIES:-}
+      # OpenVPN qua TCP, KHÔNG dùng WireGuard — xem ghi chú "Vì sao TCP" ở đầu file.
+      - VPN_TYPE=openvpn
+      - OPENVPN_PROTOCOL=tcp
+      # Service credentials (Nord Account > NordVPN > Manual setup), KHÁC email/mật khẩu
+      # tài khoản: bản thân NordVPN không cho app bên thứ ba dùng credential tài khoản.
+      - OPENVPN_USER=${NORDVPN_USER}
+      - OPENVPN_PASSWORD=${NORDVPN_PASS}
+      # Mặc định exit ở gần: SearXNG có request_timeout 3s, đi vòng qua châu Âu là
+      # bing/mojeek chuyển thẳng từ "có kết quả" sang timeout (đã đo). ~900 server
+      # trong nhóm này nên vẫn thừa đa dạng để xoay IP.
+      - SERVER_COUNTRIES=${VPN_COUNTRIES:-Singapore,Hong Kong,Japan}
       - HTTPPROXY=on            # HTTP proxy nội bộ cổng 8888, tunnel qua VPN
       - FIREWALL=on             # kill-switch: VPN rớt → chặn (không rò IP thật)
       - HTTP_CONTROL_SERVER_ADDRESS=:8000
