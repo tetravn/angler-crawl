@@ -30,6 +30,8 @@ services:
     container_name: searxng
     <<: *logging
     restart: unless-stopped
+    # Đỉnh đo được 226 MiB dưới tải search song song. 512m cho biên ~2.3x.
+    mem_limit: 512m
     # Internal-only — truy cập qua gateway: http://localhost:17300/searxng/...
     expose:
       - "8080"
@@ -88,6 +90,11 @@ services:
     container_name: flaresolverr
     <<: *logging
     restart: unless-stopped
+    # Biên độ lớn nhất stack: 88 MiB lúc rảnh nhưng 689 MiB khi giải một challenge
+    # Cloudflare — nó spawn Chromium thật. Đặt trần theo mức rảnh là giết nhầm nó giữa
+    # lúc đang giải. 1500m cho biên ~2.2x trên đỉnh đo được, và còn chỗ cho vài phiên
+    # song song. shm_size 512m ở dưới cũng tính vào cgroup này.
+    mem_limit: 1500m
     # Internal-only — truy cập qua gateway: http://localhost:17300/flaresolverr/v1
     expose:
       - "8191"
@@ -112,6 +119,12 @@ services:
     container_name: firecrawl-shim
     <<: *logging
     restart: unless-stopped
+    # Bản thân app rất nhẹ (~45 MiB), nhưng JOBS giữ kết quả crawl/batch trong RAM tới
+    # khi hết JOB_TTL_SECONDS (24h). Đo được: một batch 18 URL kèm rawHtml đẩy peak từ
+    # 73 lên 146 MiB, tức ~4 MiB mỗi kết quả nằm lại. Đây là đường tăng tuyến tính theo
+    # số trang đã cào, không phải theo tải tức thời. 1g đủ cho ~200 trang lưu; vượt nữa
+    # thì vấn đề là job store chứ không phải trần này.
+    mem_limit: 1g
     # Internal-only — truy cập qua gateway: http://localhost:17300/firecrawl/v1/...
     expose:
       - "8000"
@@ -157,6 +170,16 @@ services:
     container_name: litellm
     <<: *logging
     restart: unless-stopped
+    # Đỉnh đo được 1262 MiB, gần như toàn bộ là process Python nạp SDK mọi provider +
+    # bảng giá model; ổn định chứ không tăng theo request.
+    # Docs LiteLLM khuyến nghị 4Gi/worker, NHƯNG con số đó là cho bản nối database: nó
+    # tính cho Prisma query engine chạy như process riêng, giữ high-water mark theo câu
+    # lệnh lớn nhất từng chạy và glibc không trả lại RAM. Ở đây không có DATABASE_URL và
+    # không có process query-engine nào, nên 4Gi là dự phòng cho thứ mình không chạy —
+    # trần cao gấp 3 lần mức thật thì không bắt được runaway, mà đó mới là lý do đặt trần.
+    # NẾU sau này bật database cho litellm (spend tracking, virtual key) thì phải nâng
+    # lên 4g, lúc đó cảnh báo OOM crash-loop trong docs của họ áp dụng thật.
+    mem_limit: 2g
     expose:
       - "4000"
     command: ["--config", "/app/config.yaml", "--port", "4000"]
@@ -184,6 +207,8 @@ services:
     container_name: gateway
     <<: *logging
     restart: unless-stopped
+    # Đỉnh đo được 16 MiB — Caddy chỉ proxy, không buffer nội dung. 128m là dư dả.
+    mem_limit: 128m
     ports:
       # Port ra ngoài đổi được qua .env (ANGLER_PORT); mặc định 17300.
       - "${ANGLER_PORT:-17300}:80"
