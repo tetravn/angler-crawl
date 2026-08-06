@@ -327,7 +327,7 @@ curl -X POST "http://localhost:17300/v1/search" \
 | `lang` | — | ngôn ngữ (vd `vi`) |
 | `categories` | `["general"]` | category SearXNG cần quét; thêm `"science"` nếu muốn arxiv/scholar/pubmed |
 | `scrapeOptions` | — | nếu có thì **scrape luôn nội dung** mỗi kết quả |
-| `egress` | `null` | chọn đường ra khi scrape kết quả (`vpn`/`proxy`/`direct`); **SearXNG query đi server-wide** (chỉnh ở tầng infra) |
+| `egress` | `null` | chọn đường ra khi scrape kết quả (`vpn`/`proxy`/`direct`); **query của SearXNG không theo field này** — nó đi theo cấu hình hạ tầng: bật `docker-compose.vpn.yml` thì toàn bộ SearXNG chạy trong tunnel (xem §VPN) |
 
 Search đẩy sang SearXNG; có `scrapeOptions` thì mỗi kết quả được scrape (kèm CF bypass).
 Response: `v1` trả về `{"success":true,"data":[{url,title,description,markdown?}]}`;
@@ -644,11 +644,19 @@ docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
 - **Per-request:** field `"egress": "vpn"` (hoặc `"proxy"` với `RESIDENTIAL_PROXY_URL`).
   Mặc định `direct`. Chưa cấu hình hoặc proxy không reachable thì **fail-open** (log cảnh báo,
   đi direct, request vẫn chạy).
-- **SearXNG (giới hạn):** query metasearch **không** per-request. Muốn query SearXNG cũng qua
-  VPN: sửa [`searxng/core-config/settings.yml`](searxng/core-config/settings.yml) thêm
-  `outgoing: { proxies: { all://: http://gluetun:8888 } }` (chỉ khi chạy override VPN) rồi
-  `docker compose ... restart searxng`. Bước **scrape** trong `/search`,`/research` thì đã
-  per-request qua field `egress`.
+- **SearXNG đi TOÀN BỘ qua VPN** khi bật override — không cần sửa gì thêm. Nó chạy trong
+  network namespace của gluetun (`network_mode: service:gluetun`), nghĩa là **không có đường
+  ra nào khác ngoài tunnel**, nên `FIREWALL=on` thành kill-switch thật thay vì một dòng cấu
+  hình proxy có thể bị bỏ sót. Chọn cách này vì engine tìm kiếm chính là thứ bị chặn theo IP
+  (CAPTCHA / access denied / too many requests). Hệ quả: searxng không còn tên riêng trong
+  mạng docker — gọi qua `gluetun:8080` (override đã tự đặt cho gateway và shim).
+- **Xoay IP định kỳ:** container **vpn-rotator** cứ `VPN_ROTATE_MINUTES` phút (mặc định 15)
+  lại ép gluetun nối lại qua control server → bốc server khác → đổi IP, để không IP nào ăn đủ
+  rate-limit. Script ở [`gluetun/rotate-ip.sh`](gluetun/rotate-ip.sh), log ghi rõ `IP doi: cũ -> mới`.
+  Nhóm server rộng thì IP đa dạng hơn: để trống `VPN_COUNTRIES`. Lúc xoay, searxng mất mạng
+  vài giây (dùng chung namespace) — đánh đổi có chủ đích.
+- Control server của gluetun **không publish ra host**; chỉ 3 route đọc-trạng-thái/đổi-kết-nối
+  được mở cho rotator, xem [`gluetun/auth-config.toml`](gluetun/auth-config.toml).
 - Tắt VPN: chạy lại chỉ với `docker compose up -d`.
 
 ### Fallback nguồn ngoài (public services) — opt-in

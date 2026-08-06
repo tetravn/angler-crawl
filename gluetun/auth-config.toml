@@ -1,0 +1,16 @@
+# Cổng xác thực cho control server của gluetun.
+#
+# Từ bản gluetun mới, MỌI route của control server đều private và bắt buộc cấu hình
+# xác thực — không còn route công khai mặc định. File này mở đúng hai route mà
+# vpn-rotator cần, mọi route khác vẫn bị từ chối vì không có role nào khai báo.
+#
+# Vì sao auth = "none" là chấp nhận được ở đây: control server KHÔNG publish ra host
+# (chỉ tồn tại trong mạng docker nội bộ của stack), và hai route này không lộ bí mật —
+# xấu nhất là ai đó trong mạng ngắt VPN, mà FIREWALL=on nghĩa là ngắt VPN thì traffic
+# bị CHẶN chứ không rò IP thật. Tức rủi ro là gián đoạn dịch vụ, không phải lộ danh tính.
+# Nếu sau này publish control server ra ngoài, đổi sang auth = "apikey" và cấp key riêng.
+
+[[roles]]
+name = "angler-vpn-rotator"
+routes = ["GET /v1/publicip/ip", "PUT /v1/vpn/status", "GET /v1/vpn/status"]
+auth = "none"
