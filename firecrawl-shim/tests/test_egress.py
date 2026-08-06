@@ -98,18 +98,23 @@ def test_get_transcript_passes_proxy_to_ytdlp(monkeypatch):
 
 from app import search as search_mod
 
+# Sức khoẻ engine giả cho các fake searxng_search_full (đủ engine → không degraded).
+_H = {"answered": ["bing", "duckduckgo", "google cse"], "answeredCount": 3,
+      "failed": [], "degraded": False}
+
+
 
 def test_search_passes_proxy_to_scrape(monkeypatch):
     captured = {}
 
     async def fake_searxng(query, *, limit=10, lang=None, categories=None):
-        return [{"url": "https://x.com", "title": "x", "content": "c"}]
+        return [{"url": "https://x.com", "title": "x", "content": "c"}], _H
 
     async def fake_scrape(url, formats, only_main, *a, proxy=None, **k):
         captured["proxy"] = proxy
         return ({"markdown": "m"}, {}, False)
 
-    monkeypatch.setattr(search_mod.clients, "searxng_search", fake_searxng)
+    monkeypatch.setattr(search_mod.clients, "searxng_search_full", fake_searxng)
     monkeypatch.setattr(search_mod.scrape_mod, "scrape", fake_scrape)
     asyncio.run(search_mod.search("q", scrape_options={"formats": ["markdown"]},
                                   proxy="http://h:8888"))

@@ -3,6 +3,11 @@ import asyncio
 
 from app import research, search
 
+# Sức khoẻ engine giả cho các fake searxng_search_full (đủ engine → không degraded).
+_H = {"answered": ["bing", "duckduckgo", "google cse"], "answeredCount": 3,
+      "failed": [], "degraded": False}
+
+
 # Bằng chứng thật trong issue #6 (domain eciraipo.ar).
 GIBBERISH = ("Basdif beka kamic ge ruges gojoj sof pagucufiv kugdeji cij vak apugitu "
              "dajpursub rup fozicuij zilunug wamiztos hev")
@@ -43,12 +48,12 @@ def test_search_loai_gibberish(monkeypatch):
             {"url": "https://eciraipo.ar/x", "title": "vps", "content": GIBBERISH},
             {"url": "https://vietnix.vn/vps-vpn", "title": "Thuê VPS cài VPN",
              "content": "Thuê VPS giá rẻ tốc độ cao tại Việt Nam hỗ trợ cài đặt VPN cho máy chủ"},
-        ]
+        ], _H
     async def fake_intent(q):
         return None
-    monkeypatch.setattr(search.clients, "searxng_search", fake_searxng)
+    monkeypatch.setattr(search.clients, "searxng_search_full", fake_searxng)
     monkeypatch.setattr(search.query_intent, "analyze_intent", fake_intent)
-    out = asyncio.run(search.search("VPS Việt Nam VPN", limit=5))
+    out, _ = asyncio.run(search.search("VPS Việt Nam VPN", limit=5))
     urls = [x["url"] for x in out]
     assert "https://eciraipo.ar/x" not in urls           # spam bị loại
     assert "https://vietnix.vn/vps-vpn" in urls           # nguồn thật giữ lại

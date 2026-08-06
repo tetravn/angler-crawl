@@ -27,6 +27,7 @@ from .config import (
     LLM_MODEL,
     LLM_STREAM,
     LLM_JSON_NATIVE,
+    SEARCH_MIN_ENGINES,
 )
 from .llm_stream import stream_chat
 from . import applog, egress
@@ -246,10 +247,38 @@ async def flaresolverr_get(url: str, proxy: str | None = None) -> dict:
     return r.json()
 
 
-async def searxng_search(
+def engine_health(payload: dict) -> dict:
+    """Đếm engine THỰC SỰ trả kết quả cho một lần gọi SearXNG.
+
+    Đếm theo kết quả trả về chứ không theo config, vì engine hỏng có ba trạng thái chứ
+    không phải hai: trả kết quả, báo lỗi trong `unresponsive_engines`, và IM LẶNG — bật
+    trong config, không trả gì, cũng không báo lỗi (đã thấy với mojeek/wikidata/wikipedia).
+    Nhìn `unresponsive_engines` thì tưởng nhóm im lặng vẫn khoẻ.
+
+    ponytail: không đối chiếu với danh sách engine đã bật (phải gọi thêm /config mỗi lần
+    search). Đếm engine trả lời đủ để biết đang suy giảm; muốn chỉ đích danh engine nào im
+    thì cache danh sách /config rồi diff.
+
+    ponytail: đếm gộp mọi category. Khi caller xin thêm `science`, arxiv/semantic scholar
+    cũng được tính nên có thể che mất việc engine `general` chỉ còn 1 con. Không ảnh hưởng
+    đường mặc định (chỉ `general`); cần chính xác hơn thì đếm tách theo category.
+    """
+    results = payload.get("results") or []
+    answered = sorted({e for r in results for e in (r.get("engines") or []) if e})
+    failed = [list(x) if isinstance(x, (list, tuple)) else [str(x)]
+              for x in (payload.get("unresponsive_engines") or [])]
+    return {
+        "answered": answered,
+        "answeredCount": len(answered),
+        "failed": failed,
+        "degraded": len(answered) < SEARCH_MIN_ENGINES,
+    }
+
+
+async def searxng_search_full(
     query: str, *, limit: int = 10, lang: str | None = None, categories: str | None = None
-) -> list[dict]:
-    """Tìm kiếm qua SearXNG, trả list result thô (url, title, content)."""
+) -> tuple[list[dict], dict]:
+    """Như `searxng_search` nhưng trả kèm sức khoẻ engine của chính lần gọi này."""
     params: dict = {"q": query, "format": "json"}
     if lang:
         params["language"] = lang
@@ -257,8 +286,27 @@ async def searxng_search(
         params["categories"] = categories
     r = await _http().get(f"{SEARXNG_URL}/search", params=params)
     r.raise_for_status()
-    results = r.json().get("results") or []
-    return results[:limit] if limit else results
+    payload = r.json()
+    health = engine_health(payload)
+    if health["degraded"]:
+        # WARNING chứ không phải INFO: suy giảm âm thầm là dạng hỏng dẫn tới kết luận ngược
+        # ("không tìm thấy" bị đọc thành "không có thật"), nên phải nổi lên trong /v1/logs.
+        applog.event(
+            "search",
+            f"SearXNG suy giảm: chỉ {health['answeredCount']} engine trả lời",
+            level=logging.WARNING,
+            query=query, categories=categories, **health,
+        )
+    results = payload.get("results") or []
+    return (results[:limit] if limit else results), health
+
+
+async def searxng_search(
+    query: str, *, limit: int = 10, lang: str | None = None, categories: str | None = None
+) -> list[dict]:
+    """Tìm kiếm qua SearXNG, trả list result thô (url, title, content)."""
+    results, _ = await searxng_search_full(query, limit=limit, lang=lang, categories=categories)
+    return results
 
 
 async def llm_chat(
