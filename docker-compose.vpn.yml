@@ -80,6 +80,13 @@ services:
     environment:
       - VPN_PROXY_URL=http://gluetun:8888
       - SEARXNG_URL=http://gluetun:8080
+      # Ở chế độ VPN thì scrape cũng đi VPN theo mặc định (không chỉ search), vì
+      # nguồn chặn theo IP không phân biệt request đến từ đường nào. Vẫn ghi đè
+      # được theo từng request bằng field "egress": "direct".
+      # Lưu ý: resolve_proxy() fail-open — lúc gluetun đang xoay IP mà proxy chưa
+      # sẵn sàng thì request rơi về direct (lộ IP host) chứ không fail. Đánh đổi
+      # nghiêng về "chạy được" thay vì "tuyệt đối ẩn"; đổi ở app/egress.py nếu cần ngược lại.
+      - DEFAULT_EGRESS=vpn
     depends_on:
       - gluetun
 
