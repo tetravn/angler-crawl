@@ -161,3 +161,44 @@ def test_cache_separates_by_proxy():
     assert cache.get("https://x.com", ["markdown"], True, "http://gluetun:8888") == ("VPN",)
     # direct KHÔNG được trả entry của proxy khác
     assert cache.get("https://x.com", ["markdown"], True, "http://other:9999") is None
+
+
+# ─── Xoay IP: đừng rơi về direct chỉ vì proxy hụt vài giây ───────────────────
+# Lúc gluetun xoay IP, proxy mất ~10-20s. Rơi thẳng về direct nghĩa là request đi
+# bằng IP host — đúng thứ VPN sinh ra để giấu. Hai test dưới khoá ranh giới giữa
+# "hụt tạm thời thì chờ" và "hỏng hẳn thì đừng treo".
+
+def test_vpn_transient_outage_waits_instead_of_leaking(monkeypatch):
+    """Proxy vừa còn sống rồi hụt → phải CHỜ và dùng lại proxy, không đi direct."""
+    monkeypatch.setattr(egress, "VPN_PROXY_URL", "http://gluetun:8888")
+    monkeypatch.setattr(egress, "_RETRY_EVERY", 0.01)
+    monkeypatch.setattr(egress, "_ROTATION_GRACE", 0.2)
+    # proxy mới sống cách đây 1 giây ⇒ nằm trong _RECENT_OK_WINDOW
+    monkeypatch.setattr(egress, "_last_ok", {"http://gluetun:8888": egress.time.monotonic() - 1})
+    monkeypatch.setattr(egress, "_reach_cache", {})
+
+    calls = {"n": 0}
+
+    async def flaky(url):
+        calls["n"] += 1
+        return calls["n"] >= 2  # lần đầu hụt, lần sau sống lại
+
+    monkeypatch.setattr(egress, "_reachable", flaky)
+    assert asyncio.run(egress.resolve_proxy("vpn")) == "http://gluetun:8888"
+    assert calls["n"] >= 2, "phai probe lai chu khong bo cuoc ngay"
+
+
+def test_vpn_long_outage_does_not_hang(monkeypatch):
+    """Proxy chết lâu (không có _last_ok gần) → đi direct NGAY, không treo request."""
+    monkeypatch.setattr(egress, "VPN_PROXY_URL", "http://gluetun:8888")
+    monkeypatch.setattr(egress, "_ROTATION_GRACE", 60.0)  # nếu có chờ thì test sẽ rất chậm
+    monkeypatch.setattr(egress, "_last_ok", {})           # chưa từng sống
+    monkeypatch.setattr(egress, "_reach_cache", {})
+
+    async def dead(url):
+        return False
+
+    monkeypatch.setattr(egress, "_reachable", dead)
+    started = egress.time.monotonic()
+    assert asyncio.run(egress.resolve_proxy("vpn")) is None
+    assert egress.time.monotonic() - started < 1.0, "khong duoc cho khi proxy chet han"
