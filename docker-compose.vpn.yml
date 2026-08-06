@@ -1,32 +1,89 @@
-# ─── Override BẬT VPN egress (opt-in) ────────────────────────────────────
+# ─── Override BẬT VPN egress + xoay IP (opt-in) ──────────────────────────
 # Dùng:  docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
 # Tắt VPN: chạy lại CHỈ với docker-compose.yml (docker compose up -d).
-# Cần điền .env (xem .env.example): WIREGUARD_PRIVATE_KEY, VPN_COUNTRIES.
+# Cần điền .env (xem .env.vpn.example): WIREGUARD_PRIVATE_KEY, VPN_COUNTRIES.
 #
-# gluetun làm HTTP proxy provider (cổng 8888) tunnel qua NordVPN/WireGuard. App chọn
-# egress theo từng request (field "egress": "vpn"). Chưa cấu hình/không reachable →
-# fail-open về direct (xem firecrawl-shim/app/egress.py).
+# Hai đường ra khác nhau, cố ý:
+#
+#   1. searxng — TOÀN BỘ traffic qua VPN (network_mode: service:gluetun).
+#      Engine tìm kiếm là thứ bị chặn theo IP (CAPTCHA / access denied /
+#      too many requests), nên nó cần đổi IP chứ không phải cấu hình proxy có
+#      thể bị bỏ sót. Chạy chung namespace nghĩa là searxng KHÔNG CÓ đường ra
+#      nào khác ngoài tunnel — FIREWALL=on của gluetun thành kill-switch thật.
+#
+#   2. firecrawl-shim — VPN theo TỪNG REQUEST qua HTTP proxy (VPN_PROXY_URL),
+#      chọn bằng field "egress": "vpn". Scrape phần lớn không cần VPN và đi
+#      thẳng thì nhanh hơn; xem firecrawl-shim/app/egress.py (không cấu hình
+#      hoặc không reachable → fail-open về direct).
 services:
   gluetun:
     image: qmcgaw/gluetun:latest
     container_name: gluetun
     cap_add:
       - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     environment:
       - VPN_SERVICE_PROVIDER=nordvpn
       - VPN_TYPE=wireguard
       - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      # Để trống = chọn trong TOÀN BỘ server của NordVPN. Càng rộng thì xoay IP
+      # càng đa dạng; thu hẹp (vd "Singapore,Japan") nếu cần độ trễ thấp.
       - SERVER_COUNTRIES=${VPN_COUNTRIES:-}
       - HTTPPROXY=on            # HTTP proxy nội bộ cổng 8888, tunnel qua VPN
       - FIREWALL=on             # kill-switch: VPN rớt → chặn (không rò IP thật)
       - HTTP_CONTROL_SERVER_ADDRESS=:8000
+    volumes:
+      # Mở đúng 3 route cho vpn-rotator; mọi route khác vẫn private. Xem file.
+      - ./gluetun/auth-config.toml:/gluetun/auth/config.toml:ro
     expose:
-      - "8888"
+      - "8888"     # HTTP proxy (shim dùng khi egress=vpn)
+      - "8000"     # control server (chỉ trong mạng docker, KHÔNG publish ra host)
+      - "8080"     # cổng của searxng, vì searxng chạy trong namespace này
     restart: unless-stopped
 
-  # Trỏ VPN_PROXY_URL của shim vào gluetun → egress="vpn" dùng proxy này.
+  # searxng mượn network namespace của gluetun ⇒ mọi request engine đi qua VPN.
+  # Hệ quả: searxng không còn tên riêng trong mạng docker, phải gọi qua gluetun:8080
+  # (xem SEARXNG_URL của shim và SEARXNG_UPSTREAM của gateway bên dưới).
+  searxng:
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+
+  gateway:
+    environment:
+      - SEARXNG_UPSTREAM=gluetun:8080
+
   firecrawl-shim:
     environment:
       - VPN_PROXY_URL=http://gluetun:8888
+      - SEARXNG_URL=http://gluetun:8080
     depends_on:
       - gluetun
+
+  # ─────────────────────────────────────────────────────────────────
+  # Xoay IP định kỳ — chống bị chặn vì "too many requests" từ một IP
+  # ─────────────────────────────────────────────────────────────────
+  # gluetun không tự xoay IP: nó nối MỘT server rồi giữ nguyên. Ép đổi bằng cách
+  # gọi control server stop→start; mỗi lần nối lại nó bốc một server khác trong
+  # nhóm SERVER_COUNTRIES. Đây là cách duy nhất được hỗ trợ chính thức.
+  #
+  # Lưu ý: lúc xoay, searxng mất mạng vài giây (nó dùng chung namespace). Đó là
+  # đánh đổi có chủ đích — thà ngắt vài giây còn hơn để một IP ăn đủ rate-limit.
+  vpn-rotator:
+    image: curlimages/curl:latest
+    container_name: vpn-rotator
+    restart: unless-stopped
+    depends_on:
+      - gluetun
+    environment:
+      - ROTATE_MINUTES=${VPN_ROTATE_MINUTES:-15}
+      - GLUETUN_URL=http://gluetun:8000
+    volumes:
+      - ./gluetun/rotate-ip.sh:/rotate-ip.sh:ro
+    entrypoint: ["/bin/sh", "/rotate-ip.sh"]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"

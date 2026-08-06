@@ -31,8 +31,11 @@
 		respond `{"error":"Angler: cần API key. Gửi header: Authorization: Bearer <key>"}` 401
 	}
 
+	# Upstream đặt qua biến vì ở chế độ VPN, searxng chạy trong network namespace của
+	# gluetun (docker-compose.vpn.yml) nên không còn tên riêng — phải gọi qua gluetun:8080.
+	# Mặc định giữ nguyên searxng:8080 cho chế độ không VPN.
 	handle_path /searxng/* {
-		reverse_proxy searxng:8080
+		reverse_proxy {$SEARXNG_UPSTREAM:searxng:8080}
 	}
 	# Không mở /crawl4ai/* nữa. Đường đó đi thẳng vào engine, bỏ qua toàn bộ xử lý của
 	# shim: fallback FlareSolverr khi bị Cloudflare, phát hiện stub, cờ `blocked`, giãn
