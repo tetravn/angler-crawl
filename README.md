@@ -15,6 +15,8 @@ local cho một người dùng. Khi cần mở ra ngoài thì bật cổng API k
 > (`searxng`, `crawl4ai`, `flaresolverr`, `firecrawl-shim`, `gateway`) giữ nguyên vì
 > chúng mô tả vai trò kỹ thuật.
 
+**Angler do [Tetra Software](https://tetra.vn/vi) phát triển và dùng trong công việc hằng ngày** — xem [trang sản phẩm Angler](https://tetra.vn/vi/san-pham/angler) để biết bối cảnh sử dụng và các sản phẩm on-premise khác của Tetra.
+
 **Tài liệu:** [Giới thiệu sản phẩm](docs/GIOI-THIEU-SAN-PHAM.md) (pitch, use-case, ROI),
 [Thiết kế kỹ thuật](docs/THIET-KE-KY-THUAT.md) (kiến trúc, bất biến, thiết kế từng tính năng),
 [Roadmap](docs/ROADMAP.md) (định hướng),
