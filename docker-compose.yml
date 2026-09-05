@@ -6,6 +6,20 @@
 #   http://localhost:17300/v1/* , /v2/*      → API tương thích Firecrawl (firecrawl-shim)
 # 3 service backend là internal-only (không publish port riêng).
 #
+# ─── Trần tài nguyên ──────────────────────────────────────────────────
+# Mọi service đều có CẢ mem_limit LẪN cpus. Angler thường chạy chung máy với
+# dịch vụ khác, và crawl4ai + flaresolverr đều chạy trình duyệt thật — một lệnh
+# cào rộng hoặc một vòng lặp gọi hỏng là ăn hết CPU rồi kéo theo cả hàng xóm.
+#
+# Trần CPU cộng lại ~6,25 core. Cố ý ĐỂ DƯ so với số core của máy chủ: đây là
+# trần cho từng service, không phải chỗ đặt trước, nên mục tiêu là chặn một
+# service đơn lẻ độc chiếm chứ không phải chia hết công suất.
+#
+# Cách chọn: KHÔNG áp máy móc "2× đỉnh 7 ngày" như với RAM — đỉnh CPU đo được
+# lúc tải nhẹ (cao nhất 0,51 core) nên nhân đôi sẽ ra trần bóp chết chính công
+# việc crawl. Chọn theo "đủ rộng để làm việc, đủ chặt để không kéo sập hàng
+# xóm", và ghi lại số đo bên cạnh từng service để lần sau còn đối chiếu.
+#
 # Dựng:  docker compose up -d
 # Xoá:   docker compose down -v
 # Logs:  docker compose logs -f
@@ -32,6 +46,8 @@ services:
     restart: unless-stopped
     # Đỉnh đo được 226 MiB dưới tải search song song. 512m cho biên ~2.3x.
     mem_limit: 512m
+    # searxng: đỉnh 7d 0,01 core. Tìm kiếm là I/O-bound, 0,5 đã rộng.
+    cpus: "0.5"
     # Internal-only — truy cập qua gateway: http://localhost:17300/searxng/...
     # KHÔNG khai báo expose ở đây: override VPN cho searxng mượn network namespace của
     # gluetun, mà docker từ chối "port exposing + container network mode" cùng lúc — và
@@ -72,6 +88,10 @@ services:
     # guard chặn ở ~2.85 GB, và nếu vẫn tràn thì OOM chỉ giết crawl4ai chứ không phải host.
     # Quan sát: bình thường ~766 MiB, đỉnh mỗi request ~1.5 GB.
     mem_limit: 3g
+    # crawl4ai: chạy trình duyệt thật, là chỗ ngốn CPU nhất khi cào nhiều
+    # trang song song. Đỉnh 7d chỉ 0,12 core nhưng tuần qua dùng nhẹ — cố ý nới
+    # rộng để không bóp chết công việc crawl thật.
+    cpus: "2.0"
     environment:
       # 0.9.0 CHỈ bind mọi interface khi có token (không thì entrypoint ép loopback 127.0.0.1
       # → container khác gọi không được, mọi scrape fail). Token nội bộ (crawl4ai không publish
@@ -98,6 +118,8 @@ services:
     # lúc đang giải. 1500m cho biên ~2.2x trên đỉnh đo được, và còn chỗ cho vài phiên
     # song song. shm_size 512m ở dưới cũng tính vào cgroup này.
     mem_limit: 1500m
+    # flaresolverr: cũng chạy trình duyệt; đỉnh 7d cao nhất trong 6 service (0,51).
+    cpus: "1.5"
     # Internal-only — truy cập qua gateway: http://localhost:17300/flaresolverr/v1
     expose:
       - "8191"
@@ -128,6 +150,8 @@ services:
     # số trang đã cào, không phải theo tải tức thời. 1g đủ cho ~200 trang lưu; vượt nữa
     # thì vấn đề là job store chứ không phải trần này.
     mem_limit: 1g
+    # firecrawl-shim: điều phối, deep-research nhiều vòng có thể bận.
+    cpus: "1.0"
     # Internal-only — truy cập qua gateway: http://localhost:17300/firecrawl/v1/...
     expose:
       - "8000"
@@ -183,6 +207,8 @@ services:
     # NẾU sau này bật database cho litellm (spend tracking, virtual key) thì phải nâng
     # lên 4g, lúc đó cảnh báo OOM crash-loop trong docs của họ áp dụng thật.
     mem_limit: 2g
+    # litellm: chủ yếu chờ mạng, nhưng để 1 core cho lúc gộp/parse.
+    cpus: "1.0"
     expose:
       - "4000"
     command: ["--config", "/app/config.yaml", "--port", "4000"]
@@ -212,6 +238,8 @@ services:
     restart: unless-stopped
     # Đỉnh đo được 16 MiB — Caddy chỉ proxy, không buffer nội dung. 128m là dư dả.
     mem_limit: 128m
+    # gateway: chỉ proxy, đỉnh 7d 0,00.
+    cpus: "0.25"
     ports:
       # Port ra ngoài đổi được qua .env (ANGLER_PORT); mặc định 17300.
       - "${ANGLER_PORT:-17300}:80"
