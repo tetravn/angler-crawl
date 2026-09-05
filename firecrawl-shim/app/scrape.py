@@ -3,6 +3,7 @@ import gzip
 import logging
 import re
 from urllib.parse import urljoin, urlparse
+from .urlguard import assert_public_url
 
 from . import applog, cache, clients, domains, fallback as fallback_mod, transcript, transform
 from .config import SITEMAP_MAX_FILES, DEFAULT_FALLBACK
@@ -112,6 +113,11 @@ async def scrape(
 
     bypass_cache=True: bỏ qua cache RAM (dùng cho /monitor để phát hiện thay đổi thật).
     """
+    # SSRF (SDO-209): chặn Ở ĐÂY vì scrape() là điểm nghẽn DUY NHẤT — /v1/scrape,
+    # /v1/crawl, /v1/map, monitor, search, research và deepresearch đều đi qua nó.
+    # Riêng deepresearch TỰ ĐI THEO LINK, nên không chặn ở đây là để nội dung web
+    # không tin cậy chọn đích cho mình.
+    assert_public_url(url)
     eff_fb = fallback or DEFAULT_FALLBACK or None   # provider hiệu lực (opt-in)
     # Nhận diện URL video → trả transcript thay vì scrape web thông thường.
     if transcript.is_video_url(url):
@@ -307,6 +313,8 @@ async def site_map(
     proxy: str | None = None,
 ) -> list[str]:
     """Trả danh sách URL của site: link trên trang seed + sitemap.xml."""
+    # SSRF (SDO-209): site_map tự tải sitemap, KHÔNG đi qua scrape().
+    assert_public_url(url)
     _data, result, _ = await scrape(url, ["links"], only_main_content=False, proxy=proxy)
     base_netloc = urlparse(url).netloc
 
