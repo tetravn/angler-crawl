@@ -6,7 +6,9 @@ sửa code: trỏ FIRECRAWL_API_URL về gateway là chạy.
 Hỗ trợ cả tiền tố /v1 và /v2 (schema giống nhau).
 """
 import asyncio
+import hashlib
 import logging
+import pathlib
 import time
 import uuid
 
@@ -88,9 +90,27 @@ async def _shutdown() -> None:
     await clients.aclose()
 
 
+def code_fingerprint(root: pathlib.Path = pathlib.Path(__file__).parent) -> str:
+    """Dấu vân tay của mã đang chạy: sha256 trên đường dẫn + nội dung mọi file .py.
+
+    Để kiểm SAU deploy rằng container chạy đúng code vừa merge (SDO-210) — trạng thái
+    "deploy xanh" không chứng minh được điều đó. Tính cùng cách trên bản checkout rồi so:
+      python3 -c 'import pathlib,hashlib;r=pathlib.Path("firecrawl-shim/app");h=hashlib.sha256()
+      [h.update(str(p.relative_to(r)).encode()+p.read_bytes()) for p in sorted(r.rglob("*.py"))]
+      print(h.hexdigest()[:12])'
+    """
+    h = hashlib.sha256()
+    for p in sorted(root.rglob("*.py")):
+        h.update(str(p.relative_to(root)).encode() + p.read_bytes())
+    return h.hexdigest()[:12]
+
+
+CODE_FINGERPRINT = code_fingerprint()
+
+
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "code": CODE_FINGERPRINT}
 
 
 @app.get("/")

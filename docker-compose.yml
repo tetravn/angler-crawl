@@ -141,6 +141,13 @@ services:
   # ─────────────────────────────────────────────────────────────────
   firecrawl-shim:
     build: ./firecrawl-shim
+    # BẮT BUỘC build lại mỗi lần `up` (SDO-210). Thiếu dòng này thì `up -d` thấy image
+    # `angler-fw1uce-firecrawl-shim:latest` đã có sẵn là dùng lại, KHÔNG build: Dokploy
+    # auto-deploy kéo mã mới, recreate container, báo xanh — mà code trong container vẫn là
+    # bản cũ (đo 05/09: image 4 tuần tuổi, bản vá SSRF không có trong container). Đặt ở
+    # compose chứ không ở lệnh deploy của Dokploy để repo là nguồn sự thật. Kiểm sau deploy:
+    # GET /health → "code" phải khớp fingerprint của firecrawl-shim/app ở commit vừa merge.
+    pull_policy: build
     container_name: firecrawl-shim
     <<: *logging
     restart: unless-stopped
