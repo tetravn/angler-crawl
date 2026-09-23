@@ -124,7 +124,7 @@ def _print_report(report: dict) -> None:
 
 async def main_async(args) -> int:
     if not await _llm_ok():
-        print("Eval cần LLM — đặt LLM_BASE_URL/LLM_MODEL (LiteLLM).", file=sys.stderr)
+        print("Eval cần LLM — đặt LLM_BASE_URL/LLM_MODEL.", file=sys.stderr)
         return 2
     report: dict = {}
     if args.mode in ("extraction", "all"):

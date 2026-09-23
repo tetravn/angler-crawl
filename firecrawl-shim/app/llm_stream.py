@@ -1,4 +1,4 @@
-"""Streaming LLM qua LiteLLM + abort guards (chống generation chậm/treo/degenerate).
+"""Streaming LLM + abort guards (chống generation chậm/treo/degenerate).
 
 stream_chat (Task 2): đọc SSE, gom token, cho qua _StreamMonitor. Guard nổ → StreamAborted
 (lớp con RuntimeError) → caller xử lý như lỗi LLM thường. Clock tiêm vào feed() để test.
@@ -93,13 +93,13 @@ class _StreamMonitor:
 
 async def stream_chat(messages, *, model=None, temperature=0, json_mode=True,
                       timeout=None, on_token=None) -> str:
-    """Stream LLM qua LiteLLM, gom token (cho qua _StreamMonitor + stall guard). Trả full string.
+    """Stream LLM, gom token (cho qua _StreamMonitor + stall guard). Trả full string.
 
     on_token(delta) (async) được gọi mỗi mảnh token để đẩy ra SSE. Guard nổ → StreamAborted."""
     from .clients import _http, _client_with_timeout   # lazy: tránh circular import
     use_model = model or LLM_MODEL
     if not (LLM_BASE_URL and use_model):
-        raise RuntimeError("LLM chưa cấu hình — đặt LLM_BASE_URL + LLM_MODEL (hoặc dùng LiteLLM)")
+        raise RuntimeError("LLM chưa cấu hình — đặt LLM_BASE_URL + LLM_MODEL")
     body: dict = {"model": use_model, "messages": messages,
                   "temperature": temperature, "stream": True}
     if json_mode and LLM_JSON_NATIVE:
@@ -118,8 +118,7 @@ async def stream_chat(messages, *, model=None, temperature=0, json_mode=True,
     async with client.stream("POST", f"{LLM_BASE_URL}/chat/completions",
                              json=body, headers=headers) as resp:
         resp.raise_for_status()
-        backend = resp.headers.get("x-litellm-model-api-base") or "?"
-        log.info("LLM stream: group=%s → backend=%s", use_model, backend)
+        log.info("LLM stream: model=%s", use_model)
         it = resp.aiter_lines().__aiter__()
         while True:
             try:

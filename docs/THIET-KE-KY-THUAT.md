@@ -23,7 +23,7 @@ nguồn, chống thiên lệch, và không phụ thuộc cloud.
 
 Code first-party duy nhất là `firecrawl-shim/`, một app FastAPI nói "tiếng Firecrawl" để agent quen
 Firecrawl cắm vào mà không phải sửa code. Các service còn lại (`searxng`, `crawl4ai`, `flaresolverr`,
-`litellm`, `gateway`) là image upstream, chỉ cấu hình qua compose. Tài liệu và comment trong code
+`gateway`) là image upstream, chỉ cấu hình qua compose. Tài liệu và comment trong code
 viết bằng tiếng Việt.
 
 ```mermaid
@@ -37,9 +37,9 @@ graph TD
   shim --> c4
   shim --> fs
   shim --> sx
-  shim -->|"angler-fast, angler-smart"| ll["LiteLLM router"]
-  ll -->|"local"| ol["Ollama, vLLM"]
-  ll -->|"cloud"| cl["Groq, OpenRouter, Gemini"]
+  shim -->|"LLM_MODEL_FAST / LLM_MODEL_SMART"| llm["endpoint OpenAI-compatible"]
+  llm -->|"local"| ol["Ollama, vLLM"]
+  llm -->|"cloud"| cl["nhà cung cấp bất kỳ"]
 ```
 
 ---
@@ -92,7 +92,7 @@ Mọi backend chỉ `expose` ra mạng nội bộ. Chỉ gateway publish port ra
 | `research_llm.py` | Dịch query đa ngôn ngữ và so-chéo nguồn (cần LLM, fail-open). |
 | `search.py` | `/search` qua SearXNG, có tùy chọn scrape từng kết quả. |
 | `ranking.py` | Xếp hạng dùng chung cho `/search` và `/research`: chấm điểm point-wise đa tín hiệu rồi đa dạng hóa MMR. Hàm thuần. Xem [THIET-KE-RANKING.md](./THIET-KE-RANKING.md). |
-| `query_intent.py` | Phân tích ngôn ngữ và địa lý của các bên trong query (LLM `angler-fast`, fail-open về heuristic, có cache). |
+| `query_intent.py` | Phân tích ngôn ngữ và địa lý của các bên trong query (LLM bậc fast, fail-open về heuristic, có cache). |
 | `extract.py` | `/extract`: scrape rồi cho LLM trích xuất (cần LLM). |
 | `deepresearch.py` | Vòng lặp nghiên cứu sâu (async job, LLM). |
 | `excerpt.py` | Trích đoạn liên quan nhất từ markdown dài (keyword + mật độ số liệu, bỏ nav) cho deep-research, thay vì cắt N ký tự đầu. Hàm thuần. |
@@ -154,13 +154,12 @@ không làm sập job. Bước cốt lõi (synthesis, extract, verify của agen
 lỗi thì job `failed` hoặc `verified=false`, không giả vờ thành công. Nói rõ giới hạn quan trọng hơn
 là trông có vẻ hoàn hảo.
 
-### 4.7. Mọi call LLM đi qua LiteLLM bằng đúng hai tên ảo
+### 4.7. Mọi call LLM đi qua đúng hai bậc
 
-Code chỉ gọi `clients.llm_chat`, `llm_json`, hoặc `stream_chat` với model `angler-fast` hoặc
-`angler-smart` (mặc định `LLM_MODEL` là `angler-smart`). LiteLLM dịch tên ảo sang model thật
-(local hoặc cloud) và lo fallback. App không bao giờ biết hay phụ thuộc một model/provider cụ thể, và
-response trả về vẫn mang đúng tên ảo. Không có tên model thật nào hard-code trong shim, cũng không có
-call trực tiếp tới Ollama hay provider.
+Code chỉ gọi `clients.llm_chat`, `llm_json`, hoặc `stream_chat` với `LLM_MODEL_FAST` hoặc
+`LLM_MODEL_SMART`. Hai hằng này đọc từ env, nên tên model thật nằm ở cấu hình chứ không nằm trong
+mã. Không có tên model nào hard-code trong shim, cũng không có call trực tiếp tới Ollama hay
+một provider cụ thể. Đổi nhà cung cấp là đổi ba dòng env rồi restart, không phải sửa code.
 
 ### 4.8. Không phá chữ ký hàm cũ
 
@@ -224,37 +223,42 @@ bởi `SITEMAP_MAX_FILES`.
 
 ## 6. Thiết kế từng tính năng
 
-### LiteLLM router
+### Đường LLM
 
 #### Mục đích
 
-Cho một cổng LLM duy nhất theo chuẩn OpenAI, cắm được cả local (Ollama/vLLM) lẫn cloud, có fallback
-tự động. Đây là cách hiện thực ý "local hay cloud là tùy người dùng chọn".
+Cho shim một cổng LLM theo chuẩn OpenAI, cắm được cả local (Ollama/vLLM) lẫn cloud. Đây là cách
+hiện thực ý "local hay cloud là tùy người dùng chọn".
 
 #### Thiết kế
 
-Service `litellm` (image `ghcr.io/berriai/litellm`) `expose` cổng 4000 nội bộ và mount
-`litellm/config.yaml`. Config định nghĩa hai model-group: `angler-fast` cho việc cơ học và
-`angler-smart` cho suy luận khó. Mỗi group có thể liệt kê nhiều deployment kèm `fallbacks`, để router
-rớt xuống deployment kế khi gặp lỗi, 429, hoặc timeout, và cooldown deployment vừa lỗi. Shim chỉ trỏ
-`LLM_BASE_URL=http://litellm:4000/v1` cùng tên group; toàn bộ logic local đối cloud nằm trong config.
+Shim POST thẳng `{LLM_BASE_URL}/chat/completions`, không có tiến trình trung gian. Hai bậc model
+là hai biến env: `LLM_MODEL_FAST` cho việc cơ học và `LLM_MODEL_SMART` cho payload lớn kèm suy
+luận khó. Bậc nào dùng ở đâu là do mã shim quyết, xem mục 4.7.
+
+Trước đây chỗ này là service `litellm` với hai model-group ảo. Bỏ vào 09/2026 vì mọi nhà cung cấp
+stack đang dùng đều đã nói tiếng OpenAI sẵn, nên phần dịch giao thức của router bằng không, trong
+khi nó chiếm 1.2 GB RAM và là container nặng nhất stack. Việc chọn model to hay nhỏ theo nghiệp vụ
+vẫn còn nguyên, vì nó nằm ở shim chứ chưa bao giờ nằm ở router.
 
 #### Quyết định then chốt
 
-- LiteLLM phải start được dù key rỗng hoặc chưa có model. Deployment chỉ fail lúc *gọi*, không fail
-  lúc *khởi động*, tức nó nằm im cho tới khi cấu hình provider. Nhờ vậy `docker compose up` phần lõi
-  không vỡ.
-- `router_settings` có `num_retries`, `allowed_fails`, `cooldown_time`, và `timeout`. `timeout` cắt
-  deployment bị treo để kích hoạt fallback, vì free model hay hang. `drop_params: true` bỏ param mà
-  provider không hỗ trợ (như `response_format`) thay vì làm vỡ request.
-- Fail-closed một cách minh bạch: nếu chưa cấu hình hoặc mọi backend chết, litellm trả lỗi, `llm_chat`
-  raise, và job `failed` với đúng thông báo đó. Không im lặng degrade.
+- `LLM_BASE_URL` và `LLM_MODEL` không có giá trị mặc định. Chưa cấu hình thì `llm_chat` và
+  `stream_chat` raise ngay với thông báo rõ, thay vì gửi request tới một host không tồn tại rồi
+  chết bằng lỗi kết nối khó đọc. Phần lõi của stack vẫn `docker compose up` được khi chưa có LLM.
+- Không có fallback tự động sang nhà cung cấp khác. Lỗi hay hết quota thì job `failed` mang đúng
+  thông báo đó. Không im lặng degrade sang một model yếu hơn rồi trả kết quả kém mà không ai biết.
+- Guard chống treo nằm ở phía shim chứ không nhờ router: `LLM_HTTP_TIMEOUT` cho đường non-stream,
+  và `STREAM_STALL_TIMEOUT` cùng `_StreamMonitor` cho đường stream.
+- Model có reasoning gửi `delta.reasoning_content` trước `delta.content`. Vòng đọc stream chỉ lấy
+  `delta.content` nên bỏ qua an toàn, và mốc đo tốc độ được đặt lại ở token content đầu tiên để
+  phần suy nghĩ không làm guard "quá chậm" nổ oan.
 
 #### Cấu hình
 
-`LLM_BASE_URL`, `LLM_MODEL` (mặc định `angler-smart`), `LLM_MODEL_FAST`, `LLM_MODEL_SMART`,
-`LLM_API_KEY` (rỗng, internal), và `LLM_JSON_NATIVE` (mặc định 1; đặt 0 cho model thinking vì
-`response_format=json_object` làm content rỗng).
+`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL_FAST`, `LLM_MODEL_SMART`, `LLM_MODEL` (dùng khi lời gọi
+không nêu bậc nào), và `LLM_JSON_NATIVE` (mặc định 1; đặt 0 cho model làm content rỗng dưới
+`response_format=json_object`).
 
 ### `/search` và lớp xếp hạng ([search.py](../firecrawl-shim/app/search.py), [ranking.py](../firecrawl-shim/app/ranking.py), [query_intent.py](../firecrawl-shim/app/query_intent.py))
 
@@ -300,7 +304,7 @@ y hệt "chủ đề này không có nguồn" — dạng hỏng dẫn tới kế
 #### Query intent ([query_intent.py](../firecrawl-shim/app/query_intent.py))
 
 Để chấm language và geo cho đúng cần biết chủ đề liên quan tới ngôn ngữ và địa lý của những bên nào.
-`analyze_intent(query)` trả `{languages, geos, is_global}` bằng một call ngắn `angler-fast`, cache
+`analyze_intent(query)` trả `{languages, geos, is_global}` bằng một call ngắn bậc fast, cache
 theo query. Fail-open: LLM lỗi, hết quota, hoặc timeout thì rơi về `heuristic_intent` (đoán ngôn ngữ
 query, nhận tên địa danh bằng khớp ranh giới từ để tránh dính nhầm như "ukraine" ra "uk"). Ranking
 không bao giờ chết vì thiếu LLM, chỉ kém sâu hơn.
@@ -317,7 +321,7 @@ không bao giờ chết vì thiếu LLM, chỉ kém sâu hơn.
 ### `/extract`
 
 `POST /extract {urls, prompt, schema}` tạo một async job. Job scrape tối đa 10 URL, gộp markdown
-xuống còn 60000 ký tự, rồi gọi `clients.llm_json` (tier `angler-smart`) để trả JSON. Nếu parse hỏng
+xuống còn 60000 ký tự, rồi gọi `clients.llm_json` (tier bậc smart) để trả JSON. Nếu parse hỏng
 thì trả `{"raw": out}`. Cần LLM; lỗi thì job `failed`.
 
 ### Eval harness ([eval/](../firecrawl-shim/app/eval/))
@@ -365,11 +369,11 @@ CF-bypass và egress của Angler.
 
 ```mermaid
 flowchart TD
-  P["plan_subqueries (angler-smart)"] --> L{"còn câu chưa trả lời, chưa hết số vòng?"}
-  L -->|"không"| SY["synthesize (angler-smart, citation n)"]
-  L -->|"có"| Q["query: vòng 0 dùng gốc, vòng kế dùng alt_queries (angler-fast)"]
+  P["plan_subqueries (bậc smart)"] --> L{"còn câu chưa trả lời, chưa hết số vòng?"}
+  L -->|"không"| SY["synthesize (bậc smart, citation n)"]
+  L -->|"có"| Q["query: vòng 0 dùng gốc, vòng kế dùng alt_queries (bậc fast)"]
   Q --> SE["searxng → loại nguồn rác (is_low_value) + rank chất lượng (ranking) → scrape (loại blocked), dedupe"]
-  SE --> CK["check_answers (angler-smart): chỉ nâng confidence"]
+  SE --> CK["check_answers (bậc smart): chỉ nâng confidence"]
   CK --> ET{"mọi câu đạt EARLY_TERM?"}
   ET -->|"có"| SY
   ET -->|"không"| L
@@ -440,10 +444,10 @@ hóa MMR, thay cho round-robin thủ công trước đây. Xem [THIET-KE-RANKING
   khi intent thật sự gợi ý đa ngôn ngữ (nhiều hơn một ngôn ngữ, hoặc một ngôn ngữ khác `en`). Query
   Anh/global đơn ngữ giữ nguyên hành vi cũ, không tốn call dịch vô ích. Intent lỗi thì giữ
   `languages=None`, fail-open.
-- `translate_queries` gọi một lần bằng `angler-fast`, trả `query_by_lang` dạng `{lang: query}`. Lang
+- `translate_queries` gọi một lần bằng bậc fast, trả `query_by_lang` dạng `{lang: query}`. Lang
   thiếu hoặc rỗng thì fallback về query gốc. Nếu `query_by_lang` là `None` thì hành vi giống hệt cũ,
   không regression.
-- `cross_check` dùng `angler-smart`, lọc nguồn có nội dung (bỏ `blocked`), cân bằng theo `sourceType`,
+- `cross_check` dùng bậc smart, lọc nguồn có nội dung (bỏ `blocked`), cân bằng theo `sourceType`,
   và truncate theo `CROSS_CHECK_CHARS`. Prompt bắt grounding: chỉ được dùng URL trong danh sách,
   không bịa. Nếu số nguồn vượt `CROSS_CHECK_MAX` thì ghi warning chứ không âm thầm bỏ bớt.
   `analyze=True` thì ép `scrape=True`.
@@ -464,9 +468,9 @@ local.
 
 ```mermaid
 flowchart TD
-  O["observe: _JS_SNAPSHOT, phần tử tương tác đánh số (data-ai-idx)"] --> PL["plan_action (angler-smart)"]
+  O["observe: _JS_SNAPSHOT, phần tử tương tác đánh số (data-ai-idx)"] --> PL["plan_action (bậc smart)"]
   PL --> A{"action?"}
-  A -->|"done"| VE["verify_done (angler-smart)"]
+  A -->|"done"| VE["verify_done (bậc smart)"]
   VE -->|"verified"| OK(["result, stopReason=done, verified=true"])
   VE -->|"chưa"| CT["ghi done bị từ chối, tiếp tục"]
   A -->|"click / type / scroll / wait"| EX["act + snapshot trong cùng call (js_only)"]
@@ -728,7 +732,7 @@ stateDiagram-v2
 | Nhóm | Biến (mặc định) |
 |---|---|
 | Backend DNS | `SEARXNG_URL`, `FLARESOLVERR_URL`, `CRAWL4AI` (DNS nội bộ Docker) |
-| LLM | `LLM_BASE_URL` (`http://litellm:4000/v1`), `LLM_MODEL` (`angler-smart`), `LLM_MODEL_FAST`/`LLM_MODEL_SMART`, `LLM_API_KEY`, `LLM_HTTP_TIMEOUT` (300), `LLM_STREAM` (1), `LLM_JSON_NATIVE` (1; đặt 0 cho model thinking) |
+| LLM | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_MODEL_FAST`/`LLM_MODEL_SMART`, `LLM_API_KEY`, `LLM_HTTP_TIMEOUT` (300), `LLM_STREAM` (1), `LLM_JSON_NATIVE` (1; đặt 0 cho model làm content rỗng dưới json mode) |
 | Streaming guard | `STREAM_STALL_TIMEOUT` (30), `STREAM_SLOW_SEC_PER_WORD` (5), `STREAM_MAX_WORDS_NO_PUNCT` (200), `STREAM_MAX_CHARS_NO_SPACE` (2000), `STREAM_MAX_REPEAT` (12), `STREAM_WARMUP_WORDS` (15) |
 | Scrape/crawl | `CRAWL_CONCURRENCY`, `CRAWL4AI_CACHE_MODE`, `SCRAPE_CACHE_TTL`/`SCRAPE_CACHE_MAX`, `SITEMAP_MAX_FILES`, `SHIM_HTTP_TIMEOUT`, `FLARESOLVERR_MAX_TIMEOUT` (khoảng 120000ms), `FS_DOMAIN_TTL`, `PER_DOMAIN_DELAY_MS` |
 | Job | `JOB_TTL_SECONDS` (24h), `JOBS_DB_PATH` |

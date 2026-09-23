@@ -11,6 +11,7 @@ import logging
 import pathlib
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -25,6 +26,7 @@ from . import (
     extract as extract_mod,
     monitor,
     query_intent,
+    ratelimit,
     research as research_mod,
     research_llm,
     scrape as scrape_mod,
@@ -51,13 +53,32 @@ from .models import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("shim")
 
-app = FastAPI(title="firecrawl-shim", version="1.0.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    await _startup()
+    yield
+    await _shutdown()
+
+
+app = FastAPI(title="firecrawl-shim", version="1.0.0", lifespan=_lifespan)
 
 
 @app.middleware("http")
 async def _request_id_mw(request: Request, call_next):
     rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
     applog.set_request_id(rid)
+    # Rate limit đặt TRƯỚC khi vào route: chặn ở đây thì request tốn kém
+    # (/extract gọi LLM, /scrape gọi crawl4ai) không kịp tiêu tài nguyên nào.
+    retry_after = ratelimit.check(request)
+    if retry_after is not None:
+        ip = ratelimit.client_ip(request)
+        applog.event("http", "chạm rate limit", ip=ip, path=request.url.path)
+        return JSONResponse(
+            {"success": False, "error": "quá nhiều request, thử lại sau"},
+            status_code=429,
+            headers={"Retry-After": str(int(retry_after) + 1), "X-Request-Id": rid},
+        )
     start = asyncio.get_running_loop().time()
     response = await call_next(request)
     ms = int((asyncio.get_running_loop().time() - start) * 1000)
@@ -68,7 +89,6 @@ async def _request_id_mw(request: Request, call_next):
     return response
 
 
-@app.on_event("startup")
 async def _startup() -> None:
     store.init_db()
     await store.purge_expired()
@@ -84,7 +104,6 @@ async def _startup() -> None:
     await monitor.start()
 
 
-@app.on_event("shutdown")
 async def _shutdown() -> None:
     await applog.stop_writer()
     await clients.aclose()

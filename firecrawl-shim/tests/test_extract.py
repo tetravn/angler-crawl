@@ -1,4 +1,4 @@
-"""Test /extract gọi LLM nhất quán qua tier angler-smart (LLM_MODEL_SMART)."""
+"""Test /extract gọi LLM nhất quán qua tier smart (LLM_MODEL_SMART)."""
 import asyncio
 
 from app import extract, crawl_jobs
@@ -27,7 +27,7 @@ def test_extract_dung_tier_smart_va_hoan_tat(monkeypatch):
     try:
         asyncio.run(extract._run("t-extract", ["http://x.com"], "trích xuất", None))
         job = crawl_jobs.JOBS["t-extract"]
-        # gọi đúng tier ảo angler-smart (litellm translate), không né litellm
+        # phải gọi đúng bậc smart (payload lớn), không tự tụt xuống bậc fast
         assert captured["model"] == LLM_MODEL_SMART
         assert captured["json_mode"] is True
         assert job["status"] == "completed"

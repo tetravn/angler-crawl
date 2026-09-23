@@ -6,7 +6,18 @@
 #
 # KHÔNG có route tới crawl4ai. Engine chỉ gọi được qua shim (/v1/scrape...) — xem
 # ghi chú ở chỗ đặt route cũ bên dưới.
-:80 {
+#
+# Địa chỉ site lấy từ ANGLER_SITE_ADDRESS, mặc định :80 (HTTP trần, dùng trong mạng nhà).
+# Đặt biến này thành tên miền (vd angler.example.com) là Caddy tự xin và gia hạn chứng
+# chỉ Let's Encrypt, không cần thêm cấu hình nào. Xem docker-compose.public.yml.
+{$ANGLER_SITE_ADDRESS::80} {
+	# Trần kích thước body. Không có nó thì một request POST khổng lồ được đọc hết vào
+	# RAM của shim trước khi bất kỳ validation nào chạy. Chỉ thành vấn đề khi mở ra
+	# internet, nhưng đặt sẵn thì mạng nhà cũng không mất gì.
+	request_body {
+		max_size {$ANGLER_MAX_BODY:10MB}
+	}
+
 	# Access log. Không có nó thì request đi thẳng vào backend không để lại dấu vết
 	# ở đâu cả, và khi backend gây sự cố thì không truy được ai đã gọi (#17).
 	# Ghi ra stdout để Docker lo phần xoay log (giới hạn đặt ở docker-compose.yml).

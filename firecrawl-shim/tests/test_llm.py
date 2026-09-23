@@ -4,13 +4,13 @@ from app import clients
 
 
 class _FakeResp:
-    headers = {"x-litellm-model-api-base": "http://ollama.internal:11434"}
+    headers: dict = {}
 
     def raise_for_status(self):
         pass
 
     def json(self):
-        return {"model": "groq/llama-3.1-8b-instant",
+        return {"model": "Qwen3.8-27B",
                 "choices": [{"message": {"content": "hi"}}]}
 
 
@@ -29,9 +29,9 @@ def test_llm_chat_explicit_model_and_temperature(monkeypatch):
     monkeypatch.setattr(clients, "_http", lambda: _fake_http(cap))
     monkeypatch.setattr(clients, "LLM_STREAM", False)
     out = asyncio.run(clients.llm_chat(
-        [{"role": "user", "content": "x"}], model="angler-fast", temperature=0.3))
+        [{"role": "user", "content": "x"}], model="model-fast", temperature=0.3))
     assert out == "hi"
-    assert cap["body"]["model"] == "angler-fast"
+    assert cap["body"]["model"] == "model-fast"
     assert cap["body"]["temperature"] == 0.3
     assert cap["body"]["response_format"] == {"type": "json_object"}
     assert cap["url"].endswith("/chat/completions")
@@ -40,10 +40,10 @@ def test_llm_chat_explicit_model_and_temperature(monkeypatch):
 def test_llm_chat_defaults_to_llm_model(monkeypatch):
     cap = {}
     monkeypatch.setattr(clients, "_http", lambda: _fake_http(cap))
-    monkeypatch.setattr(clients, "LLM_MODEL", "angler-smart")
+    monkeypatch.setattr(clients, "LLM_MODEL", "model-smart")
     monkeypatch.setattr(clients, "LLM_STREAM", False)
     asyncio.run(clients.llm_chat([{"role": "user", "content": "x"}]))
-    assert cap["body"]["model"] == "angler-smart"
+    assert cap["body"]["model"] == "model-smart"
     assert cap["body"]["temperature"] == 0      # default
 
 
@@ -99,9 +99,9 @@ def test_llm_chat_uses_stream_when_enabled(monkeypatch):
 
     monkeypatch.setattr(clients, "stream_chat", fake_stream)
     monkeypatch.setattr(clients, "LLM_STREAM", True)
-    out = asyncio.run(clients.llm_chat([{"role": "user", "content": "x"}], model="angler-fast"))
+    out = asyncio.run(clients.llm_chat([{"role": "user", "content": "x"}], model="model-fast"))
     assert out == "streamed"
-    assert called["kw"]["model"] == "angler-fast"
+    assert called["kw"]["model"] == "model-fast"
 
 
 def test_llm_chat_non_stream_when_disabled(monkeypatch):
