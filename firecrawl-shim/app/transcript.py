@@ -162,9 +162,10 @@ def _youtube_id(url: str) -> str | None:
 def _yt_api_fetch(video_id: str, languages: list[str], proxy: str | None = None):
     """Sync — chạy trong to_thread. Trả (language_code, list[{text,start,duration}]) hoặc None."""
     from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api.proxies import GenericProxyConfig
 
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-    tlist = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
+    proxy_config = GenericProxyConfig(http_url=proxy, https_url=proxy) if proxy else None
+    tlist = YouTubeTranscriptApi(proxy_config=proxy_config).list(video_id)
     transcript_obj = None
     try:
         transcript_obj = tlist.find_manually_created_transcript(languages)
@@ -181,7 +182,7 @@ def _yt_api_fetch(video_id: str, languages: list[str], proxy: str | None = None)
             break
     if transcript_obj is None:
         return None
-    return transcript_obj.language_code, transcript_obj.fetch()
+    return transcript_obj.language_code, transcript_obj.fetch().to_raw_data()
 
 
 async def _via_youtube_api(url: str, languages: list[str], proxy: str | None = None) -> dict | None:

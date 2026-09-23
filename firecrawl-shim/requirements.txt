@@ -1,5 +1,5 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
 httpx==0.28.1
-yt-dlp>=2024.12
-youtube-transcript-api==0.6.2
+yt-dlp>=2026.8
+youtube-transcript-api==1.2.4

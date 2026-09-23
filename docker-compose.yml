@@ -74,7 +74,7 @@ services:
     # Pin version, không dùng :latest — 0.9.0 từng đổi default bind sang 127.0.0.1 làm shim
     # không gọi được (#7), nên nâng bản phải chủ động và kiểm lại.
     # 0.9.2 thêm --dir /var/lib/redis cho redis trong supervisord.conf → hết MISCONF (#16).
-    image: unclecode/crawl4ai:0.9.2
+    image: unclecode/crawl4ai:0.9.3
     container_name: crawl4ai
     <<: *logging
     restart: unless-stopped

@@ -11,6 +11,7 @@ import logging
 import pathlib
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -51,7 +52,15 @@ from .models import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("shim")
 
-app = FastAPI(title="firecrawl-shim", version="1.0.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    await _startup()
+    yield
+    await _shutdown()
+
+
+app = FastAPI(title="firecrawl-shim", version="1.0.0", lifespan=_lifespan)
 
 
 @app.middleware("http")
@@ -68,7 +77,6 @@ async def _request_id_mw(request: Request, call_next):
     return response
 
 
-@app.on_event("startup")
 async def _startup() -> None:
     store.init_db()
     await store.purge_expired()
@@ -84,7 +92,6 @@ async def _startup() -> None:
     await monitor.start()
 
 
-@app.on_event("shutdown")
 async def _shutdown() -> None:
     await applog.stop_writer()
     await clients.aclose()
