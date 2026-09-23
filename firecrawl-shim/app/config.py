@@ -10,10 +10,12 @@ FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL", "http://flaresolverr:8191"
 # SearXNG cho endpoint /v1/search.
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080").rstrip("/")
 
-# LLM qua LiteLLM router (OpenAI-compatible). Mặc định trỏ vào service litellm nội bộ.
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://litellm:4000/v1").rstrip("/")
+# LLM: gọi THẲNG một endpoint OpenAI-compatible, không qua router trung gian.
+# Không có default: chưa đặt thì /v1/extract và deep-research báo lỗi cấu hình rõ ràng,
+# hơn là trỏ vào một host không tồn tại rồi chết vì connection refused.
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "").rstrip("/")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "angler-smart")  # tên model-group trong litellm/config.yaml
+LLM_MODEL = os.environ.get("LLM_MODEL", "")  # tên model thật của provider, vd "Qwen3.8-27B"
 
 # Timeout (giây) cho httpx gọi crawl4ai/flaresolverr — crawl có thể chậm.
 HTTP_TIMEOUT = float(os.environ.get("SHIM_HTTP_TIMEOUT", "180"))
@@ -72,10 +74,11 @@ RESIDENTIAL_PROXY_URL = os.environ.get("RESIDENTIAL_PROXY_URL", "").strip()
 DEFAULT_EGRESS = os.environ.get("DEFAULT_EGRESS", "direct").strip() or "direct"
 
 # ─── P5 — Chống bias nâng cao (LLM: dịch query đa ngôn ngữ + so chéo nguồn) ───
-# Tên model-group trong litellm/config.yaml. fast = việc cơ học (dịch query);
-# smart = suy luận khó (so chéo nguồn).
-LLM_MODEL_FAST = os.environ.get("LLM_MODEL_FAST", "angler-fast")
-LLM_MODEL_SMART = os.environ.get("LLM_MODEL_SMART", "angler-smart")
+# Hai bậc model. fast = việc cơ học (dịch query, đoán intent, lập kế hoạch);
+# smart = suy luận khó + payload lớn (extract, so chéo nguồn, tổng hợp).
+# Cả hai đều là tên model thật của provider ở LLM_BASE_URL. Trỏ cùng một model cũng được.
+LLM_MODEL_FAST = os.environ.get("LLM_MODEL_FAST", "") or LLM_MODEL
+LLM_MODEL_SMART = os.environ.get("LLM_MODEL_SMART", "") or LLM_MODEL
 # Timeout (giây) RIÊNG cho đường LLM — model local có thể chậm; ai cần nhanh dùng cloud.
 LLM_HTTP_TIMEOUT = float(os.environ.get("LLM_HTTP_TIMEOUT", "300"))
 # So chéo nguồn (#9): số nguồn tối đa đưa vào LLM + số ký tự truncate mỗi nguồn.

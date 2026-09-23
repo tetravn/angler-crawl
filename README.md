@@ -427,7 +427,7 @@ curl -X DELETE "http://localhost:17300/v1/deep-research/<jobId>"
 
 Kết quả (`data` khi `status:"completed"`): `{query, answer (markdown + [n]), sources:[{n,url,title}],
 subQuestions:[{question,answered,confidence}], iterations, warnings}`.
-**Cần LLM** (LiteLLM — xem mục bật LLM): thiếu LLM thì job `failed` rõ ràng. Trong vòng lặp,
+**Cần LLM** (xem mục bật LLM): thiếu LLM thì job `failed` rõ ràng. Trong vòng lặp,
 mọi bước phụ **fail-open** (ghi `warnings`); nguồn bị chặn (`blocked`) bị loại khỏi trích dẫn.
 
 ### 4.8 `POST /v1/agent` — browser agent tự lái (mở rộng, cần LLM)
@@ -569,9 +569,11 @@ chỉ-biết-Firecrawl dùng được mà không cần biết đây là video; c
 | `TRANSCRIPT_TIMEOUT` | `60` | trần thời gian (giây) lấy transcript 1 video (chặn yt-dlp treo) |
 | `SHIM_HTTP_TIMEOUT` | `180` | timeout (giây) httpx gọi backend |
 | `FLARESOLVERR_MAX_TIMEOUT` | `120000` | maxTimeout (ms) giải CF (site nặng cần khoảng 120s) |
-| `LLM_BASE_URL` | `http://litellm:4000/v1` | endpoint LLM OpenAI-compatible (mặc định trỏ service LiteLLM nội bộ) |
-| `LLM_API_KEY` | — | API key LLM (litellm internal không cần; để rỗng) |
-| `LLM_MODEL` | `angler-smart` | tên **model-group** trong `litellm/config.yaml` (`angler-fast`/`angler-smart`) |
+| `LLM_BASE_URL` | — | endpoint LLM OpenAI-compatible (bỏ trống = `/v1/extract` báo lỗi cấu hình) |
+| `LLM_API_KEY` | — | API key của endpoint đó |
+| `LLM_MODEL` | — | model dùng khi lời gọi không nêu bậc nào |
+| `LLM_MODEL_FAST` | `LLM_MODEL` | model bậc nhanh: dịch query, đoán intent, lập kế hoạch |
+| `LLM_MODEL_SMART` | `LLM_MODEL` | model bậc mạnh: extract, so chéo nguồn, tổng hợp |
 | `VPN_PROXY_URL` | — | URL proxy khi `egress:"vpn"` (vd `http://gluetun:8888`); chưa set thì fail-open về direct |
 | `RESIDENTIAL_PROXY_URL` | — | URL proxy khi `egress:"proxy"` (residential/datacenter); chưa set thì fail-open về direct |
 | `DEFAULT_EGRESS` | `direct` | egress mặc định khi request không truyền field `egress` (`direct`/`vpn`/`proxy`) |
@@ -676,24 +678,24 @@ Nội dung lấy từ ngoài luôn gắn `metadata.source` để bạn biết đ
 
 `DEFAULT_FALLBACK` (rỗng = tắt) đặt provider mặc định cho mọi request không nêu `fallback`.
 
-### Bật LLM (LiteLLM router — local hay cloud, bạn chọn)
-Stack có service **`litellm`** làm cổng LLM duy nhất (OpenAI-compatible), **luôn chạy nhưng inert**
-tới khi bạn cấu hình provider. Bật `/v1/extract` và `/v1/deep-research`:
+### Bật LLM
+Shim gọi thẳng một endpoint OpenAI-compatible, không có router trung gian. Bất cứ thứ gì nói
+được `/chat/completions` đều dùng được: nhà cung cấp cloud, hay Ollama chạy local qua `/v1`.
+Bật `/v1/extract` và `/v1/deep-research`:
 
 ```bash
-cp .env.example .env              # (nếu chưa có) điền GROQ/GEMINI/OPENROUTER_API_KEY (cái nào dùng) + OLLAMA_BASE_URL
-# sửa litellm/config.yaml thành tên model Ollama BẠN chạy (ollama/<model>) trong 2 group
-docker compose up -d              # litellm đọc key + cắm Ollama local
+cp .env.example .env    # (nếu chưa có) rồi điền 4 dòng LLM_* trong đó
+docker compose up -d
 ```
-> `litellm/config.yaml` có **model mặc định generic** (mỗi user tự chọn model của mình — repo không
-> giữ model cá nhân). Endpoint Ollama qua `OLLAMA_BASE_URL` trong `.env` (local hoặc remote). Để khỏi
-> lỡ commit lựa chọn model cá nhân: `git update-index --skip-worktree litellm/config.yaml`.
-- **2 model-group**: `angler-fast` (việc cơ học), `angler-smart` (suy luận khó). Shim mặc định
-  gọi `angler-smart`. Router tự **fallback + cooldown** khi 1 deployment 429/hết-quota.
-- **Local hay cloud do bạn chọn**: sắp lại thứ tự deployment trong group ở `litellm/config.yaml`
-  = đổi ưu tiên (cloud-trước hay local-trước). Máy yếu thì full cloud; trọng riêng tư thì full local.
-- **Minh bạch**: log shim ghi `LLM trả lời: group=… → model=<backend thực>`. Chưa cấu hình hoặc
-  hết quota thì `/extract` job `failed` với thông báo rõ (không im lặng).
+- **Hai bậc model**, đặt bằng env chứ không phải file cấu hình riêng:
+  `LLM_MODEL_FAST` cho việc cơ học (dịch query, đoán intent, lập kế hoạch),
+  `LLM_MODEL_SMART` cho payload lớn và suy luận khó (extract, so chéo nguồn, tổng hợp).
+  Trỏ cả hai vào cùng một model cũng được.
+- **Local hay cloud do bạn chọn**: đổi `LLM_BASE_URL` sang `http://host.docker.internal:11434/v1`
+  là chạy Ollama trên máy. Máy yếu thì dùng cloud; trọng riêng tư thì dùng local.
+- **Không có fallback tự động**: endpoint lỗi hay hết quota thì job `failed` với thông báo rõ,
+  không im lặng tụt sang model khác. Muốn đổi nhà cung cấp thì sửa `LLM_BASE_URL` rồi restart.
+- **Minh bạch**: log shim ghi `LLM trả lời: model=<model provider trả về> (gửi: <model đã yêu cầu>)`.
 
 ### Endpoint phụ
 - `GET /health` trả về `{"status":"ok"}` (healthcheck)
@@ -714,7 +716,7 @@ docker compose exec firecrawl-shim python -m app.eval.run faithfulness --out /tm
   hay **bịa** (adversarial verify; câu không trích nguồn bị tính là không-faithful).
 
 Dataset built-in nhỏ ở `firecrawl-shim/app/eval/datasets/*.json` — thêm case của bạn (cùng định dạng)
-hoặc trỏ `--dataset <file>`. Cần LLM (LiteLLM); model local chậm nên một lần chạy có thể vài phút.
+hoặc trỏ `--dataset <file>`. Cần LLM; model local chậm nên một lần chạy có thể vài phút.
 
 Hướng dẫn chọn model cho từng tier và từng size xem [Chọn model LLM](docs/CHON-MODEL-LLM.md).
 
@@ -735,8 +737,8 @@ Hướng dẫn chọn model cho từng tier và từng size xem [Chọn model LL
   NordVPN) và chọn `"egress":"vpn"`/`"proxy"` theo từng request, **fail-open** về direct khi
   chưa cấu hình. Xem mục **Bật VPN egress** ở trên.
 - **Mọi service internal-only** trừ gateway — chỉ `17300` ra ngoài.
-- **`/v1/extract` cần LLM** — mặc định trỏ service **LiteLLM** (`angler-smart`); cấu hình ít nhất 1 provider
-  (cloud key hoặc Ollama local) là chạy. Xem mục **Bật LLM (LiteLLM)** ở trên.
+- **`/v1/extract` cần LLM**: điền `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL*` trong `.env`
+  (endpoint cloud hoặc Ollama local) là chạy. Xem mục **Bật LLM** ở trên.
 - **CF nặng (vd thuvienphapluat.vn):** đã verify lấy được **toàn văn** qua firecrawl —
   cần `FLARESOLVERR_MAX_TIMEOUT` khoảng 120s. `onlyMainContent=true` có **lưới an toàn**: nếu
   PruningContentFilter cắt quá tay (fit < 30% raw) thì tự trả bản đầy đủ (không mất nội dung).

@@ -1,6 +1,6 @@
 """Phân tích ý định truy vấn: ngôn ngữ và địa lý của các bên liên quan.
 
-analyze_intent thử LLM (angler-fast) trước; lỗi/timeout/tắt thì về heuristic. Fail-open: ranking
+analyze_intent thử LLM (tier fast) trước; lỗi/timeout/tắt thì về heuristic. Fail-open: ranking
 không bao giờ chết vì thiếu LLM. Cache theo query để khỏi gọi lại.
 """
 import logging

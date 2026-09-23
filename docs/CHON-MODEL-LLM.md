@@ -2,24 +2,24 @@
 
 Một số tính năng của stack cần LLM (`/extract`, `/research` khi bật `analyze`, `/deep-research`,
 `/agent`). LLM là lựa chọn của user: chạy local (Ollama/vLLM/LM Studio) hay cloud free-tier
-(Groq/Gemini/OpenRouter/DeepSeek...) đều được, vào chung qua LiteLLM router. File này giúp chọn
-model cho đúng việc và đo chất lượng thật thay vì đoán.
+đều được, miễn là nói được `/chat/completions` chuẩn OpenAI. Shim gọi thẳng endpoint đó, không
+có router trung gian. File này giúp chọn model cho đúng việc và đo chất lượng thật thay vì đoán.
 
-Cấu hình để bật LLM xem [`README.md`](../README.md) mục "Bật LLM". Cập nhật: 2026-06-22.
+Cấu hình để bật LLM xem [`README.md`](../README.md) mục "Bật LLM". Cập nhật: 2026-09-23.
 
 ---
 
 ## Hai tier model
 
-Stack chia việc thành hai tier, mỗi tier là một model group trong LiteLLM (trải được cả local lẫn
-cloud), để xài model nhỏ cho việc dễ và model lớn cho việc khó:
+Stack chia việc thành hai tier để xài model nhỏ cho việc dễ và model lớn cho việc khó:
 
-- `angler-fast` cho việc cơ học: planning, sinh truy vấn, lọc, tóm tắt, dịch query, extract đơn
+- Tier fast cho việc cơ học: planning, sinh truy vấn, lọc, tóm tắt, dịch query, extract đơn
   giản (các tác vụ 1 đến 5, 8, 10 ở bảng dưới).
-- `angler-smart` cho suy luận khó: synthesis, hậu kiểm citation, so chéo nguồn (tác vụ 6, 7, 9).
+- Tier smart cho suy luận khó: synthesis, hậu kiểm citation, so chéo nguồn (tác vụ 6, 7, 9).
 
-Đặt qua env `LLM_MODEL_FAST` và `LLM_MODEL_SMART` (mặc định cả hai bằng `LLM_MODEL`). Router tự
-route và fallback khi một deployment 429 hoặc hết quota.
+Đặt qua env `LLM_MODEL_FAST` và `LLM_MODEL_SMART` (bỏ trống thì cả hai lấy `LLM_MODEL`). Việc
+chọn tier nào cho tác vụ nào nằm trong mã shim, không nằm ở cấu hình. Hai tier có thể trỏ vào
+cùng một model nếu bạn không cần tách.
 
 ---
 
@@ -60,8 +60,8 @@ Rủi ro lớn nhất của model nhỏ là bịa citation. Giảm bằng cách 
 nguồn, chia nhỏ chunk mỗi nguồn, grounding chặt, và hậu kiểm citation (tác vụ 7).
 
 Ánh xạ vào hai tier:
-- `angler-fast`: khoảng 4B local (Gemma/Qwen) hoặc Gemini-Flash/Groq cloud cho việc dễ.
-- `angler-smart`: khoảng 12 đến 14B local hoặc Gemini-Pro/DeepSeek cloud cho việc khó.
+- Tier fast: khoảng 4B local (Gemma/Qwen) hoặc một model cloud nhỏ, nhanh cho việc dễ.
+- Tier smart: khoảng 12 đến 14B local hoặc một model cloud mạnh hơn cho việc khó.
 
 ---
 
@@ -124,57 +124,41 @@ một model chỉ vì nó thiếu tính năng đó. Cái cần là bám format v
 
 ---
 
-## Đề xuất cho OpenRouter free (đo ngày 2026-06-22)
+## Số đo thật trên endpoint đang dùng (đo ngày 2026-09-23)
 
-OpenRouter đổi pool model free bất kỳ lúc nào, nên phần này có hạn dùng và cần kiểm lại định kỳ.
-Lấy danh sách free hiện tại bằng `scripts/refresh-litellm-free.py`, hoặc query nhanh:
+Endpoint hiện cấu hình là `https://console.bizbrain.app/v1`, OpenAI-compatible. Mình đo bốn model
+chat của nó trên hai tải sát workload thật của Angler:
 
-```bash
-curl -s https://openrouter.ai/api/v1/models \
-  | jq -r '.data[] | select(.pricing.prompt=="0" and .pricing.completion=="0") | .id'
+- Tải fast: dịch một query ngắn sang hai thứ tiếng, trả JSON.
+- Tải smart: payload 112.938 ký tự (khoảng 28K token, gần gấp đôi trần 60.000 ký tự mà
+  `extract.py` cắt), yêu cầu trích hai con số nằm lẫn giữa văn bản nhiễu, trả JSON.
+
+| Model | fast: xong sau | smart: xong sau | smart trả đúng số | Ghi chú |
+|---|---|---|---|---|
+| Qwen3.8-27B | 1,8s | 5,7s | đúng | không tốn token suy nghĩ, nhanh nhất cả hai tải |
+| GLM-5.3 | 6,5s | 8,3s | đúng | có suy nghĩ trước khi trả lời, chậm hơn nhưng vẫn gọn |
+| DeepSeek-V4-Flash | 20,1s | 15,7s | đúng | context 1M, nhưng chậm nhất, kể cả với prompt ngắn |
+| Qwen3.8-27B-Uncensored | 3,0s | 7,8s | JSON hỏng | trả `{"ok{"ok":1}`, không dùng được cho extract |
+
+Chốt đề xuất:
+
+```
+LLM_MODEL_FAST=Qwen3.8-27B
+LLM_MODEL_SMART=GLM-5.3
 ```
 
-Ngày đo có 27 model free. Mình test live 5 ứng viên đa ngôn ngữ trên ba tác vụ sát workload
-Angler: extract JSON từ văn bản tiếng Việt, dịch query sang ba thứ tiếng, và synthesis có citation
-kèm phát hiện outlier. Kết quả:
+Lý do: tier fast nằm trong vòng lặp của deep-research và agent nên độ trễ nhân lên theo số vòng,
+Qwen3.8-27B nhanh gấp ba hai model kia. Tier smart đổi lấy khả năng suy luận với giá 2,6 giây so
+với Qwen, mức chênh không đáng kể cho một job extract hay deep-research chạy nền.
 
-| Model | Context | Extract JSON | Dịch đa ngôn ngữ | Synthesis kèm citation | Độ trễ | Tình trạng free |
-|---|---|---|---|---|---|---|
-| gemma-4-31b-it:free | 262k | đúng (bọc fence) | đúng | tốt nhất: cite đủ, bám nguồn chặt, bắt được outlier | 2.7 đến 5.8s | chạy ổn cả 3 task |
-| gpt-oss-120b:free | 131k | đúng (JSON trần) | đúng | tốt, nhưng bồi thêm vài chi tiết không có trong nguồn | 3.1 đến 7.2s | chạy ổn cả 3 task |
-| gpt-oss-20b:free | 131k | đúng (JSON trần) | đúng | khá, một câu outlier thiếu tag [2] | 2.8 đến 7.2s | chạy ổn cả 3 task |
-| qwen3-next-80b-a3b-instruct:free | 262k | đúng | bị rate-limit | bị rate-limit | 1.8s | chỉ qua 1 trên 3, còn lại 429 |
-| gemma-4-26b-a4b-it:free | 262k | bị rate-limit | bị rate-limit | bị rate-limit | không đo được | 0 trên 3, 429 cả 5 lần retry |
+DeepSeek-V4-Flash chỉ nên dùng khi thật sự cần context vượt 131K. Payload lớn nhất mà shim tạo ra
+là 60.000 ký tự (`extract.py`), nên trường hợp đó hiện không xảy ra.
 
-Nhận xét:
-- Faithfulness: gemma-4-31b bám nguồn chặt nhất, không thêm thông tin ngoài nguồn, quan trọng cho
-  synthesis và hậu kiểm citation. gpt-oss có xu hướng bồi thêm chi tiết hợp lý nhưng không có trong
-  nguồn (over-attribution), cần để ý nếu dùng cho deep-research.
-- JSON: gpt-oss trả JSON trần, cắm thẳng vào extract; gemma bọc trong khối fence nên shim phải bóc
-  (transform đã làm, nhưng JSON trần vẫn sạch hơn). gemma và gpt-oss-20b hỗ trợ response_format
-  json native; gpt-oss-120b thì không.
-- Đa ngôn ngữ: cả năm đều dịch EN, JA, FR chính xác, không model nào rớt tiếng Việt.
-- Rate-limit là yếu tố quyết định: gemma-4-26b-a4b và qwen tuy mạnh nhưng phổ biến nên bị throttle
-  nặng, gần như không gọi được lúc cao điểm với key keyless-shared.
+Cả ba model dùng được đều chạy tốt với `LLM_JSON_NATIVE=1`.
 
-Chốt đề xuất (theo ngày đo):
-- `angler-smart` (synthesis, so chéo, extract trang dài): `google/gemma-4-31b-it:free`. Faithfulness
-  tốt nhất, context 262k, JSON native (giữ `LLM_JSON_NATIVE=1`), chạy ổn định. Fallback
-  `openai/gpt-oss-120b:free` (reasoning mạnh, sẵn sàng; nhưng đặt `LLM_JSON_NATIVE=0` vì không có
-  json native, và canh over-attribution).
-- `angler-fast` (planning, dịch, lọc, extract đơn giản): `openai/gpt-oss-20b:free`. Nhanh, ổn định,
-  JSON trần sạch, json native. Nếu muốn đúng hướng dùng 4B thì đặt `google/gemma-4-26b-a4b:free`
-  làm primary (chất lượng và context tốt), nhưng bắt buộc có fallback vì nó hay 429.
-- Luôn cấu hình chuỗi fallback trong `litellm/config.yaml`: xếp 2 đến 3 model free cùng tier rồi
-  chốt bằng Ollama local, để khi free 429 thì router tự chuyển. Đây là cách duy nhất để free tier
-  dùng được ổn định.
-
-Lưu ý `LLM_JSON_NATIVE`: gemma và gpt-oss-20b để 1; gpt-oss-120b và các model reasoning thuần
-(như Qwen3 reasoning) để 0.
-
-Nếu cần context lớn hơn 262k cho nguồn cực dài: `nvidia/nemotron-3-super-120b-a12b:free` có 1M
-context và đang free, nhưng thiên tiếng Anh, chưa kiểm tiếng Việt, chỉ cân nhắc khi nội dung chủ
-yếu tiếng Anh.
+Về đường stream: model có suy nghĩ gửi `delta.reasoning_content` trước `delta.content`. Khoảng
+cách lớn nhất giữa hai dòng SSE đo được là 5,3 giây, còn xa trần `STREAM_STALL_TIMEOUT` 30 giây,
+nên guard chống treo không cắt nhầm.
 
 ---
 

@@ -179,10 +179,17 @@ services:
       #   SCRAPE_CACHE_MAX=128          # số entry tối đa của cache
       #   PER_DOMAIN_DELAY_MS=500       # giãn nhịp giữa 2 request cùng domain (ms); 0 = tắt
       #   FS_DOMAIN_TTL=1800            # nhớ "domain cần FlareSolverr" (giây); 0 = tắt
-      # Cấu hình LLM (OpenAI-compatible) để bật /v1/extract — bỏ trống = extract báo lỗi.
-      - LLM_BASE_URL=http://litellm:4000/v1
-      - LLM_MODEL=angler-smart
-      # - LLM_API_KEY=        # để rỗng: litellm internal, không auth
+      # Cấu hình LLM: gọi THẲNG một endpoint OpenAI-compatible, không qua router.
+      # Bỏ trống LLM_BASE_URL = /v1/extract và deep-research báo lỗi cấu hình.
+      # Hai bậc model: FAST cho việc cơ học (dịch query, đoán intent, lập kế hoạch),
+      # SMART cho payload lớn + suy luận khó (extract, so chéo nguồn, tổng hợp).
+      # Trỏ cả hai vào cùng một model cũng được.
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL_FAST=${LLM_MODEL_FAST:-}
+      - LLM_MODEL_SMART=${LLM_MODEL_SMART:-}
+      # Dùng khi gọi không nêu bậc nào; để trống thì rơi về chuỗi rỗng và báo lỗi cấu hình.
+      - LLM_MODEL=${LLM_MODEL:-}
       # =1 (mặc định): gửi response_format json_object. =0 cho model "thinking" (Qwen3 reasoning)
       # vì format:json làm content rỗng — đặt LLM_JSON_NATIVE=0 trong .env khi dùng model như vậy.
       - LLM_JSON_NATIVE=${LLM_JSON_NATIVE:-1}
@@ -197,50 +204,6 @@ services:
       - crawl4ai
       - flaresolverr
       - searxng
-      - litellm
-
-  # ─────────────────────────────────────────────────────────────────
-  # LiteLLM — router LLM OpenAI-compatible (local Ollama + cloud free-tier)
-  # Cổng vào duy nhất cho LLM của shim. Inert tới khi cấu hình provider.
-  # ─────────────────────────────────────────────────────────────────
-  litellm:
-    # main-stable là tag trôi, upstream build đè liên tục. Giữ tên tag cho dễ đọc
-    # nhưng ghim digest của bản build 23/09/2026 (revision d09bbae) để mọi lần deploy
-    # ra đúng một image. Nâng: bỏ phần @sha256, pull, rồi ghim lại digest mới.
-    image: ghcr.io/berriai/litellm:main-stable@sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02
-    container_name: litellm
-    <<: *logging
-    restart: unless-stopped
-    # Đỉnh đo được 1262 MiB, gần như toàn bộ là process Python nạp SDK mọi provider +
-    # bảng giá model; ổn định chứ không tăng theo request.
-    # Docs LiteLLM khuyến nghị 4Gi/worker, NHƯNG con số đó là cho bản nối database: nó
-    # tính cho Prisma query engine chạy như process riêng, giữ high-water mark theo câu
-    # lệnh lớn nhất từng chạy và glibc không trả lại RAM. Ở đây không có DATABASE_URL và
-    # không có process query-engine nào, nên 4Gi là dự phòng cho thứ mình không chạy —
-    # trần cao gấp 3 lần mức thật thì không bắt được runaway, mà đó mới là lý do đặt trần.
-    # NẾU sau này bật database cho litellm (spend tracking, virtual key) thì phải nâng
-    # lên 4g, lúc đó cảnh báo OOM crash-loop trong docs của họ áp dụng thật.
-    mem_limit: 2g
-    # litellm: chủ yếu chờ mạng, nhưng để 1 core cho lúc gộp/parse.
-    cpus: "1.0"
-    expose:
-      - "4000"
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"   # cho Ollama trên host (Linux compat; Mac có sẵn)
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness',timeout=5).status==200 else 1)"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
 
   # ─────────────────────────────────────────────────────────────────
   # Gateway — Caddy reverse proxy, gom các service về 1 port (17300)

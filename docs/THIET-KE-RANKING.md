@@ -76,7 +76,7 @@ dùng λ cao (đa dạng nhẹ), `/research` dùng λ thấp hơn (ép phủ r�
 Để chấm language và geo cho đúng, cần biết chủ đề liên quan tới ngôn ngữ và địa lý của những bên nào.
 Đây là phần hiểu truy vấn.
 
-- Đường LLM (ưu tiên): một call ngắn bằng `angler-fast`, trả JSON
+- Đường LLM (ưu tiên): một call ngắn bằng tier fast, trả JSON
   `{languages, geos, is_global, parties}`. Kết quả cache theo query để không gọi lại.
 - Đường heuristic (đỡ lưng): đoán ngôn ngữ của query, nhận tên địa danh đơn giản, mặc định coi là
   global khi không có địa lý rõ.

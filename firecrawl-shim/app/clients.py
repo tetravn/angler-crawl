@@ -317,16 +317,16 @@ async def llm_chat(
     json_mode: bool = True,
     timeout: float | None = None,
 ) -> str:
-    """Gọi LLM qua LiteLLM router (OpenAI-compatible). `model` None → LLM_MODEL (vd 'angler-smart').
+    """Gọi LLM (endpoint OpenAI-compatible). `model` None → LLM_MODEL.
 
-    Litellm route tới deployment trong model-group (local/cloud, có fallback). Lỗi/hết-quota
-    đều bị raise lên (caller — vd /extract — báo job failed với thông báo rõ)."""
+    Gọi thẳng provider, không có fallback: lỗi/hết-quota raise lên cho caller
+    (vd /extract) báo job failed với thông báo rõ."""
     if LLM_STREAM:
         return await stream_chat(messages, model=model, temperature=temperature,
                                  json_mode=json_mode, timeout=timeout)
     use_model = model or LLM_MODEL
     if not (LLM_BASE_URL and use_model):
-        raise RuntimeError("LLM chưa cấu hình — đặt LLM_BASE_URL + LLM_MODEL (hoặc dùng LiteLLM)")
+        raise RuntimeError("LLM chưa cấu hình — đặt LLM_BASE_URL + LLM_MODEL")
     body: dict = {"model": use_model, "messages": messages, "temperature": temperature}
     if json_mode and LLM_JSON_NATIVE:
         body["response_format"] = {"type": "json_object"}
@@ -337,11 +337,10 @@ async def llm_chat(
     r = await client.post(f"{LLM_BASE_URL}/chat/completions", json=body, headers=headers)
     r.raise_for_status()
     data = r.json()
-    # Minh bạch: LiteLLM lộ backend thực qua header x-litellm-model-api-base (thấy local/cloud nào).
-    backend = r.headers.get("x-litellm-model-api-base") or "?"
-    model = data.get("model")
-    log.info("LLM trả lời: group=%s → backend=%s (model=%s)", use_model, backend, model)
-    applog.event("llm", "LLM trả lời", group=use_model, backend=backend, model=model)
+    # Model provider thực sự phục vụ: có thể khác tên gửi đi nếu upstream đổi alias/quota.
+    served = data.get("model") or use_model
+    log.info("LLM trả lời: model=%s (gửi: %s)", served, use_model)
+    applog.event("llm", "LLM trả lời", model=served, requested=use_model)
     return data["choices"][0]["message"]["content"]
 
 
@@ -350,8 +349,8 @@ def loads_json(out: str):
 
     Thứ tự: json.loads trần (model trả JSON sạch như gpt-oss) → bóc code fence (gemma hay bọc)
     → lấy block {...} hoặc [...] đầu→cuối (model reasoning hay thêm preamble). Hết cách thì raise.
-    Một deployment trong chuỗi fallback của litellm có thể trả JSON không trần; helper này để
-    không vỡ parse khi router rớt sang nó. Trả dict hoặc list (caller tự kiểm kiểu)."""
+    Model khác nhau trả JSON bẩn theo kiểu khác nhau; helper này để không vỡ parse khi
+    đổi model. Trả dict hoặc list (caller tự kiểm kiểu)."""
     try:
         return json.loads(out)
     except Exception:

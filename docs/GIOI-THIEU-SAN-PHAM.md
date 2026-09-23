@@ -120,7 +120,7 @@ Angler phủ gần trọn API Firecrawl, **cộng** các mở rộng riêng (res
 | **Map** | `POST /v1/map` | sync | Liệt kê URL của site (link trang seed + sitemap đệ quy) |
 | **Crawl** | `POST /v1/crawl` rồi `GET /v1/crawl/{id}` | async | Quét sâu BFS theo `limit`/`maxDepth`; lưu SQLite |
 | **Batch scrape** | `POST /v1/batch/scrape` rồi `GET /v1/batch/scrape/{id}` | async | Bóc song song một danh sách URL cố định |
-| **Extract** | `POST /v1/extract` rồi `GET /v1/extract/{id}` | async | Bóc rồi cho **LLM** trích JSON theo schema — qua **LiteLLM** (local Ollama **hoặc** cloud free-tier, bạn chọn) |
+| **Extract** | `POST /v1/extract` rồi `GET /v1/extract/{id}` | async | Bóc rồi cho **LLM** trích JSON theo schema (local Ollama **hoặc** cloud, bạn chọn) |
 | **Research** (mở rộng) | `POST /v1/research` | sync | Gom nguồn **đa trục chống bias** (mở rộng riêng của Angler) |
 | **Deep research** (mở rộng) | `POST /v1/deep-research` | async job | Nghiên cứu sâu: bẻ câu hỏi, tìm/scrape, lặp, rồi **trả lời có trích dẫn** (mở rộng riêng; cần LLM) |
 | **Transcript** (mở rộng) | `POST /v1/transcript` | sync | **Video thành transcript** (caption-only, yt-dlp); clip không caption thì `blocked` |
@@ -332,7 +332,7 @@ Tinh thần: công cụ nghiên cứu ưu tiên **đa dạng nguồn / chống b
 - **Fallback nguồn ngoài** (xong, opt-in): khi local bị chặn, có thể cho phép dùng dịch vụ public
   (Jina/Firecrawl cloud) để lấy bằng được — nội dung gắn `source`, mặc định tắt (riêng tư trước).
 
-> *Đã hoàn thành gần đây (không còn ở roadmap):* **LLM qua LiteLLM router (local/cloud) + `/extract`**,
+> *Đã hoàn thành gần đây (không còn ở roadmap):* **LLM (local hoặc cloud) + `/extract`**,
 > video sang transcript, `/monitor`, egress VPN/proxy, **`/deep-research` (native loop có trích dẫn)**,
 > **fallback nguồn ngoài (Jina + Firecrawl cloud, opt-in)** — xem §3.
 
@@ -340,7 +340,7 @@ Tinh thần: công cụ nghiên cứu ưu tiên **đa dạng nguồn / chống b
 
 | Giới hạn | Chi tiết |
 |---|---|
-| **`/extract` và `/deep-research` cần LLM** | Phải cấu hình LLM (local **hoặc** cloud) qua LiteLLM; chưa có thì job `failed` với thông báo rõ. `/deep-research` trên model local có thể chạy vài phút — dùng cloud nếu cần nhanh. |
+| **`/extract` và `/deep-research` cần LLM** | Phải cấu hình LLM (local **hoặc** cloud); chưa có thì job `failed` với thông báo rõ. `/deep-research` trên model local có thể chạy vài phút — dùng cloud nếu cần nhanh. |
 | **`/map` phủ chưa bằng cloud** | Dựa trên link trang + sitemap, không bằng độ phủ của Firecrawl cloud. |
 | **`onlyMainContent` là heuristic** | Lọc bằng PruningContentFilter + lưới an toàn, không phải readability/LLM. |
 | **Đa-ngôn-ngữ `/research` cần LLM** | Khi có LLM, query được dịch sang từng ngôn ngữ (đa ngôn ngữ thật); không có LLM thì dùng query gốc, cảnh báo trong `warnings`. |
