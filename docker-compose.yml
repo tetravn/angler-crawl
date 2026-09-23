@@ -40,7 +40,10 @@ services:
   # SearXNG — Metasearch Engine
   # ─────────────────────────────────────────────────────────────────
   searxng:
-    image: docker.io/searxng/searxng:latest
+    # Ghim bản, không dùng :latest — searxng build lại nhiều lần mỗi ngày nên :latest
+    # khiến hai lần deploy cách nhau vài giờ chạy hai bản khác nhau. Tag này là bản
+    # :latest trỏ tới lúc ghim (23/09/2026).
+    image: docker.io/searxng/searxng:2026.9.23-783a09462
     container_name: searxng
     <<: *logging
     restart: unless-stopped
@@ -109,7 +112,8 @@ services:
   # FlareSolverr — Cloudflare / Anti-bot bypass proxy
   # ─────────────────────────────────────────────────────────────────
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    # Ghim bản, không dùng :latest — v3.5.2 là release mới nhất (12/09/2026).
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
     container_name: flaresolverr
     <<: *logging
     restart: unless-stopped
@@ -200,7 +204,10 @@ services:
   # Cổng vào duy nhất cho LLM của shim. Inert tới khi cấu hình provider.
   # ─────────────────────────────────────────────────────────────────
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    # main-stable là tag trôi, upstream build đè liên tục. Giữ tên tag cho dễ đọc
+    # nhưng ghim digest của bản build 23/09/2026 (revision d09bbae) để mọi lần deploy
+    # ra đúng một image. Nâng: bỏ phần @sha256, pull, rồi ghim lại digest mới.
+    image: ghcr.io/berriai/litellm:main-stable@sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02
     container_name: litellm
     <<: *logging
     restart: unless-stopped
@@ -239,7 +246,8 @@ services:
   # Gateway — Caddy reverse proxy, gom các service về 1 port (17300)
   # ─────────────────────────────────────────────────────────────────
   gateway:
-    image: docker.io/caddy:2-alpine
+    # Ghim bản, không dùng nhánh :2-alpine — bản vá mới của Caddy 2 tự vào theo tag đó.
+    image: docker.io/caddy:2.11.4-alpine
     container_name: gateway
     <<: *logging
     restart: unless-stopped
