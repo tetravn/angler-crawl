@@ -1,0 +1,51 @@
+# ─── Override MỞ ANGLER RA INTERNET (opt-in) ──────────────────────────────
+# Dùng:  docker compose -f docker-compose.yml -f docker-compose.public.yml up -d
+# Về lại mạng nhà: chạy lại CHỈ với docker-compose.yml (docker compose up -d).
+#
+# Cần điền .env trước (xem .env.example):
+#   ANGLER_DOMAIN    tên miền đã trỏ A/AAAA về máy này
+#   ANGLER_API_KEY   khoá đủ dài, vd: openssl rand -base64 32
+#
+# Thiếu một trong hai thì compose TỪ CHỐI khởi động, chứ không lặng lẽ dựng một
+# stack mở toang. Đó là chủ đích: bản chạy trong nhà cố tình không có auth, nên
+# nếu bê nguyên cấu hình đó ra internet thì ai cũng gọi được /v1/extract và tiêu
+# key LLM ghi trong .env.
+#
+# ── Ba thứ file này bật, và vì sao ──
+#
+#   1. TLS tự động. Caddy nghe 80 và 443, tự xin chứng chỉ Let's Encrypt cho
+#      ANGLER_DOMAIN rồi tự gia hạn. Cổng 80 phải mở thật vì ACME dùng nó để xác
+#      thực, không chỉ để chuyển hướng sang HTTPS. Chứng chỉ nằm trong volume
+#      caddy-data (khai ở docker-compose.yml) để recreate không xin lại từ đầu.
+#
+#   2. API key bắt buộc. Gate đã có sẵn trong Caddyfile nhưng chỉ kích hoạt khi
+#      ANGLER_API_KEY khác rỗng. Cú pháp :? dưới đây biến "quên điền" thành lỗi
+#      khởi động thay vì một lỗ hổng im lặng.
+#
+#   3. Rate limit theo IP. /v1/extract và /v1/deep-research gọi LLM thật, nên
+#      ngay cả người CÓ key cũng không nên chạy được vòng lặp vô hạn. 60
+#      request/phút là mức cho một agent dùng bình thường; đổi bằng
+#      RATE_LIMIT_PER_MIN trong .env.
+#
+# ── Thứ file này KHÔNG lo, phải tự xử ──
+#
+#   - Tường lửa máy chủ: chỉ nên mở 80 và 443 ra ngoài. Các cổng nội bộ của
+#     stack vốn dùng expose chứ không publish nên đã kín, nhưng phần còn lại của
+#     máy thì không thuộc phạm vi compose.
+#   - Sao lưu volume firecrawl-jobs nếu job crawl là thứ cần giữ.
+#   - Theo dõi hạn mức LLM. Rate limit chặn lạm dụng, không chặn được việc dùng
+#     thật vượt quá hạn mức free tier.
+
+services:
+  gateway:
+    environment:
+      - ANGLER_SITE_ADDRESS=${ANGLER_DOMAIN:?dat ANGLER_DOMAIN trong .env truoc khi mo ra internet}
+      - ANGLER_API_KEY=${ANGLER_API_KEY:?dat ANGLER_API_KEY trong .env truoc khi mo ra internet}
+    ports: !override
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"     # HTTP/3
+
+  firecrawl-shim:
+    environment:
+      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}

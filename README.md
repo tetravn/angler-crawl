@@ -168,7 +168,40 @@ curl -H "Authorization: Bearer <key>" "http://localhost:17300/v1/search" ...
 | `gateway/Caddyfile` | `docker compose restart gateway` | caddy reload qua exec **không** áp dụng đáng tin cậy ở đây |
 | code Python trong `firecrawl-shim/` | `docker compose up -d --build firecrawl-shim` | code được `COPY` vào image, **không** bind-mount |
 
-> Không có test suite / linter — **verify bằng `curl`** vào gateway đang chạy (như §2).
+> Bộ test nằm ở `firecrawl-shim/tests/` (`docker compose exec firecrawl-shim python -m pytest -q`).
+> Không có linter. Đường đi qua gateway thì **verify bằng `curl`** vào stack đang chạy (như §2).
+
+### Host ra internet
+
+Bản mặc định nghe trên `127.0.0.1`, cố ý: khi `ANGLER_API_KEY` để trống thì stack
+không có auth, mà `/v1/extract` lại tiêu key LLM thật trong `.env`. Mở rộng dần:
+
+| Phạm vi | Cách làm |
+|---|---|
+| Chỉ máy này | mặc định, không cần làm gì |
+| Máy khác trong LAN | `ANGLER_BIND=0.0.0.0` trong `.env`, kèm `ANGLER_API_KEY` |
+| Internet | overlay `docker-compose.public.yml` |
+
+```bash
+# .env: điền ANGLER_DOMAIN (đã trỏ A/AAAA về máy này) và ANGLER_API_KEY
+openssl rand -base64 32          # sinh khoá
+docker compose -f docker-compose.yml -f docker-compose.public.yml up -d
+```
+
+Overlay này bật ba thứ:
+
+1. **TLS tự động.** Caddy nghe 80 và 443, tự xin và tự gia hạn chứng chỉ Let's Encrypt
+   cho `ANGLER_DOMAIN`. Cổng 80 phải mở thật vì ACME dùng nó để xác thực. Chứng chỉ nằm
+   trong volume `caddy-data` nên recreate container không xin lại từ đầu.
+2. **API key bắt buộc.** Thiếu `ANGLER_DOMAIN` hoặc `ANGLER_API_KEY` thì compose từ chối
+   khởi động, thay vì dựng lên một stack mở toang.
+3. **Rate limit theo IP**, mặc định 60 request/phút, đổi bằng `RATE_LIMIT_PER_MIN`. Cần
+   ngay cả khi đã có API key: một client hợp lệ chạy vòng lặp vẫn đốt hết hạn mức LLM.
+   Chạm trần thì trả 429 kèm `Retry-After`.
+
+Ba thứ overlay không lo, phải tự xử: tường lửa máy chủ (chỉ nên mở 80 và 443), sao lưu
+volume `firecrawl-jobs`, và theo dõi hạn mức LLM. Rate limit chặn lạm dụng chứ không
+chặn được việc dùng thật vượt hạn mức free tier.
 
 ---
 
@@ -569,6 +602,7 @@ chỉ-biết-Firecrawl dùng được mà không cần biết đây là video; c
 | `TRANSCRIPT_TIMEOUT` | `60` | trần thời gian (giây) lấy transcript 1 video (chặn yt-dlp treo) |
 | `SHIM_HTTP_TIMEOUT` | `180` | timeout (giây) httpx gọi backend |
 | `FLARESOLVERR_MAX_TIMEOUT` | `120000` | maxTimeout (ms) giải CF (site nặng cần khoảng 120s) |
+| `RATE_LIMIT_PER_MIN` | `0` | rate limit theo IP client (request/phút); `0` = tắt, overlay public đặt 60 |
 | `LLM_BASE_URL` | — | endpoint LLM OpenAI-compatible (bỏ trống = `/v1/extract` báo lỗi cấu hình) |
 | `LLM_API_KEY` | — | API key của endpoint đó |
 | `LLM_MODEL` | — | model dùng khi lời gọi không nêu bậc nào |
@@ -750,8 +784,9 @@ Hướng dẫn chọn model cho từng tier và từng size xem [Chọn model LL
 ```
 docker-compose.yml          # định nghĩa 5 service + volume
 docker-compose.vpn.yml      # override opt-in: egress qua VPN (gluetun + NordVPN)
+docker-compose.public.yml   # override opt-in: mở ra internet (TLS + API key + rate limit)
 .env.example                # mẫu cấu hình (port, API key, LLM, VPN) — cp thành .env
-gateway/Caddyfile           # route theo path-prefix + cổng API key
+gateway/Caddyfile           # route theo path-prefix + cổng API key + trần body
 searxng/
   ├── .env
   └── core-config/settings.yml

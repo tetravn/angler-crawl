@@ -197,6 +197,8 @@ services:
       - LOG_DB_ENABLED=${LOG_DB_ENABLED:-1}
       - LOG_DB_LEVEL=${LOG_DB_LEVEL:-INFO}
       - LOG_TTL_SECONDS=${LOG_TTL_SECONDS:-604800}
+      # Rate limit theo IP (request/phút). 0 = tắt. Bật khi host public.
+      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-0}
     volumes:
       # Lưu job crawl (SQLite) để sống sót qua restart.
       - firecrawl-jobs:/data
@@ -219,15 +221,27 @@ services:
     # gateway: chỉ proxy, đỉnh 7d 0,00.
     cpus: "0.25"
     ports:
-      # Port ra ngoài đổi được qua .env (ANGLER_PORT); mặc định 17300.
-      - "${ANGLER_PORT:-17300}:80"
+      # Mặc định CHỈ nghe trên loopback. Stack không có auth khi ANGLER_API_KEY trống,
+      # và /v1/extract tiêu key LLM thật, nên bind 0.0.0.0 phải là lựa chọn chủ động
+      # chứ không phải mặc định. Mở cho máy khác trong mạng LAN: đặt ANGLER_BIND=0.0.0.0
+      # trong .env. Mở ra internet: dùng docker-compose.public.yml.
+      - "${ANGLER_BIND:-127.0.0.1}:${ANGLER_PORT:-17300}:80"
     environment:
       # Cổng API key: đặt ANGLER_API_KEY trong .env để bật, để trống thì mở (local).
       - ANGLER_API_KEY=${ANGLER_API_KEY:-}
+      # Tên miền khi host public. Default phải do compose cấp chứ không phải do
+      # cú pháp {$VAR:default} của Caddy: Caddy chỉ dùng default khi biến KHÔNG
+      # ĐƯỢC ĐẶT, còn compose luôn đặt nó (rỗng). Biến rỗng làm dòng mở site block
+      # thành "{" và Caddy đọc nhầm thành global options block rồi chết.
+      - ANGLER_SITE_ADDRESS=${ANGLER_SITE_ADDRESS:-:80}
+      - ANGLER_MAX_BODY=${ANGLER_MAX_BODY:-10MB}
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:Z
       # Trang tĩnh discovery: landing HTML, llms.txt, manifest.json (read-only).
       - ./gateway/site:/srv:ro,Z
+      # Chứng chỉ TLS. Không có volume này thì mỗi lần recreate container là xin lại
+      # chứng chỉ mới, và Let's Encrypt chặn sau 5 lần cùng một tên miền trong 1 tuần.
+      - caddy-data:/data
     depends_on:
       - searxng
       - crawl4ai
@@ -243,3 +257,4 @@ services:
 volumes:
   searxng-cache:
   firecrawl-jobs:
+  caddy-data:

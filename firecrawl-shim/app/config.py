@@ -39,6 +39,10 @@ SCRAPE_CACHE_MAX = int(os.environ.get("SCRAPE_CACHE_MAX", "128"))
 # rate-limit/block. 0 để tắt. Domain khác nhau KHÔNG ảnh hưởng lẫn nhau.
 PER_DOMAIN_DELAY_MS = int(os.environ.get("PER_DOMAIN_DELAY_MS", "500"))
 
+# Rate limit theo IP client (request mỗi phút). 0 = tắt, đúng cho mạng nhà.
+# Bật khi host public: xem docker-compose.public.yml.
+RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", "0"))
+
 # Nhớ "domain này cần FlareSolverr" trong bao lâu (giây) để lần sau đi thẳng,
 # bỏ cú thử Crawl4AI trực tiếp chắc-chắn-thất-bại. Tự hết hạn.
 FS_DOMAIN_TTL = int(os.environ.get("FS_DOMAIN_TTL", "1800"))
