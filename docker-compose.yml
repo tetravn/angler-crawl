@@ -117,7 +117,11 @@ services:
     # Cloudflare — nó spawn Chromium thật. Đặt trần theo mức rảnh là giết nhầm nó giữa
     # lúc đang giải. 1500m cho biên ~2.2x trên đỉnh đo được, và còn chỗ cho vài phiên
     # song song. shm_size 512m ở dưới cũng tính vào cgroup này.
-    mem_limit: 1500m
+    # SDO-309: 1500m không đủ — 11/10 kernel kill chromium 5 lần trong 30 phút, cgroup
+    # chạm trần liên tục (failcnt 13,7 triệu), đỉnh đo được 1.572 MB = đúng trần. Chỉ
+    # tiến trình con chết nên container KHÔNG restart, request hỏng trong im lặng.
+    # Nâng 2× → 3g; đỉnh đã bị trần chặn nên đây là cận dưới, đo lại sau 7 ngày.
+    mem_limit: 3g
     # flaresolverr: cũng chạy trình duyệt; đỉnh 7d cao nhất trong 6 service (0,51).
     cpus: "1.5"
     # Internal-only — truy cập qua gateway: http://localhost:17300/flaresolverr/v1
@@ -156,7 +160,11 @@ services:
     # 73 lên 146 MiB, tức ~4 MiB mỗi kết quả nằm lại. Đây là đường tăng tuyến tính theo
     # số trang đã cào, không phải theo tải tức thời. 1g đủ cho ~200 trang lưu; vượt nữa
     # thì vấn đề là job store chứ không phải trần này.
-    mem_limit: 1g
+    # SDO-309: 17/09 → 08/10 kernel kill uvicorn (PID 1) 9 lần ở trần 1g, mỗi lần là cả
+    # API sập rồi restart. Đỉnh 30 ngày 1.071 MB = chạm trần; đỉnh 7 ngày 389 MB — tức
+    # tải có đợt, khớp với job store tích luỹ theo số trang. Nâng 2× → 2g để dừng sập;
+    # nếu vẫn chạm 2g thì phải giới hạn job store, không nới tiếp.
+    mem_limit: 2g
     # firecrawl-shim: điều phối, deep-research nhiều vòng có thể bận.
     cpus: "1.0"
     # Internal-only — truy cập qua gateway: http://localhost:17300/firecrawl/v1/...
