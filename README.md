@@ -743,6 +743,18 @@ Hướng dẫn chọn model cho từng tier và từng size xem [Chọn model LL
 - **Giới hạn đã biết:** `map` không phủ bằng Firecrawl cloud (dựa link trang + sitemap);
   `onlyMainContent` là heuristic (PruningContentFilter + lưới an toàn), không phải readability/LLM.
 
+## Triển khai bản hosted (Dokploy)
+
+Bản hosted trên tant-dokploy chỉ triển khai **qua CI** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+(SDO-302): PR chạy bộ kiểm thử firecrawl-shim, `docker compose config` và build ảnh shim (có so vân
+tay mã trong ảnh); push `main` chạy lại các bước đó, xanh thì gọi webhook `refreshToken` của compose
+(secret `DOKPLOY_DEPLOY_URL`). Repo cố ý **không có webhook** trỏ thẳng Dokploy — đừng thêm lại.
+
+Runner GitHub không vào được Angler (chỉ nghe trên Tailscale, đòi Bearer), nên CI không tự đợi bản
+mới lên. Phần tóm tắt của lần chạy ghi vân tay mong đợi; từ máy trong tailnet kiểm bằng
+`curl -s -H "Authorization: Bearer $ANGLER_API_KEY" "$ANGLER_BASE_URL/firecrawl/health"` → `code`
+phải khớp. Chạy lại triển khai không cần commit mới: Actions → CI → Run workflow trên `main`.
+
 ## Cấu trúc repo
 
 ```
