@@ -1,0 +1,142 @@
+# Bộ kiểm trước khi merge, và triển khai ngay sau khi merge (SDO-302).
+#
+# Vòng đời một thay đổi:
+#   mở PR   -> chạy `kiem` + `anh`; đỏ thì branch protection không cho merge
+#   push main (merge hoặc đẩy thẳng)
+#           -> chạy lại cả hai trên commit đó, xanh thì `trien-khai` bảo Dokploy
+#              dựng lại stack trên tant-dokploy; đỏ thì stack giữ nguyên bản cũ
+#
+# Đây là cửa DUY NHẤT ra production: repo cố ý không có webhook nào trỏ thẳng
+# về Dokploy, để không commit nào lên stack mà chưa qua bộ kiểm.
+#
+# ⚠️ Khác các site công khai: Angler chỉ nghe trên Tailscale và đòi Bearer, runner
+# GitHub không chạm được, nên job này KHÔNG tự đợi được bản mới lên. Bước cuối
+# in ra vân tay mong đợi kèm lệnh kiểm tay; giám sát của fleet lo phần "còn sống".
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Hai lần đẩy liên tiếp lên main: huỷ lần trước, đừng để hai deploy chồng nhau.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  kiem:
+    name: Bo kiem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          # Khớp ảnh python:3.12-slim của firecrawl-shim.
+          python-version: "3.12"
+      - name: Cai goi
+        working-directory: firecrawl-shim
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Kiem thu firecrawl-shim
+        working-directory: firecrawl-shim
+        run: python -m pytest -q
+      # Compose là nơi hay sửa nhất (trần CPU/RAM, biến môi trường), nên đọc nó
+      # bằng chính docker compose. searxng/.env do máy chủ giữ, không nằm trong
+      # repo — tạo tệp rỗng để `config` không dừng vì thiếu env_file.
+      - name: Compose hop le
+        run: |
+          touch searxng/.env
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.vpn.yml config -q
+
+  anh:
+    name: Dung anh Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # firecrawl-shim là service duy nhất dựng từ mã nguồn; các service khác
+      # kéo ảnh có sẵn. Dokploy dựng lại đúng Dockerfile này từ cùng commit.
+      - name: Dung firecrawl-shim
+        run: docker build -t firecrawl-shim:ci-${{ github.sha }} ./firecrawl-shim
+      # Vân tay mã trong ảnh — hỏi thẳng hằng CODE_FINGERPRINT của ứng dụng, chính
+      # là giá trị GET /health trả (SDO-210) — phải bằng giá trị scripts/van-tay.py
+      # tính từ mã nguồn. Lệch là hai bên đã khác thuật toán: sửa trước khi merge,
+      # không thì lệnh kiểm tay sau triển khai sẽ chỉ sai hướng.
+      - name: Van tay trong anh khop ma nguon
+        run: |
+          set -eu
+          can=$(python3 scripts/van-tay.py)
+          co=$(docker run --rm --entrypoint python firecrawl-shim:ci-${{ github.sha }} \
+                 -c 'from app.main import CODE_FINGERPRINT; print(CODE_FINGERPRINT)')
+          echo "ma nguon: $can — trong anh: $co"
+          [ "$co" = "$can" ]
+
+  trien-khai:
+    name: Trien khai
+    needs: [kiem, anh]
+    # push main HOẶC bấm tay (workflow_dispatch) trên main — bấm tay là cách
+    # triển khai lại mà không cần commit mới. PR thì không bao giờ triển khai.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Bí mật là NGUYÊN đường dẫn webhook của Dokploy, dạng
+      # https://<dokploy>/api/deploy/compose/<refreshToken>. Cố ý không dùng API
+      # key của Dokploy: key đó mở được mọi ứng dụng trên máy, còn refreshToken
+      # chỉ bấm được đúng compose angler.
+      #
+      # ⚠️ Webhook chỉ chạy khi compose bật autoDeploy. Tắt cờ đó là bước này chết.
+      #
+      # Payload dạng push của Gitea (`x-gitea-event`), giống mọi repo khác trong
+      # fleet: Dokploy lấy nhánh từ `ref` so với nhánh của compose (nguồn custom
+      # git cũng đọc được dạng này). POST rỗng thì nhánh rỗng và nó trả 301
+      # "Branch Not Match" — 301, không phải 4xx.
+      - name: Bao Dokploy dung lai va chay
+        env:
+          URL: ${{ secrets.DOKPLOY_DEPLOY_URL }}
+          SHA: ${{ github.sha }}
+          LOI: ${{ github.event.head_commit.message }}
+        run: |
+          set -eu
+          [ -n "${URL:-}" ] || { echo "Thieu secret DOKPLOY_DEPLOY_URL"; exit 1; }
+          # Dựng JSON bằng python để lời commit có nháy hay xuống dòng cũng không vỡ.
+          python3 - > /tmp/payload.json <<'PY'
+          import json, os
+          msg = (os.environ.get("LOI") or "NEW COMMIT").splitlines()[0]
+          json.dump({
+              "ref": "refs/heads/main",
+              "after": os.environ.get("SHA", ""),
+              "commits": [{"message": msg, "added": [], "modified": [], "removed": []}],
+          }, open("/dev/stdout", "w"))
+          PY
+          # `|| true`: curl thoát khác 0 khi không nối được, mà `set -e` sẽ giết
+          # kịch bản trước khi kịp in ra chuyện gì đã xảy ra. Để mã HTTP quyết.
+          ma=$(curl -sS -o /tmp/ra -w '%{http_code}' --max-time 60 \
+                 --retry 3 --retry-delay 5 --retry-all-errors -X POST "$URL" \
+                 -H 'Content-Type: application/json' \
+                 -H 'x-gitea-event: push' \
+                 --data-binary @/tmp/payload.json || true)
+          echo "HTTP $ma"; cat /tmp/ra; echo
+          case "$ma" in 2??) ;; *) echo "::error::Dokploy tu choi lenh trien khai — stack van chay ban cu"; exit 1 ;; esac
+
+      # Không đợi được từ đây (xem đầu tệp), nên ghi rõ phải kiểm gì và bằng gì.
+      - name: Van tay can kiem tay
+        run: |
+          can=$(python3 scripts/van-tay.py)
+          {
+            echo "### Kiểm sau triển khai (từ máy trong tailnet)"
+            echo
+            echo "Dokploy đã nhận lệnh. Khi build xong (vài phút), \`code\` phải bằng \`$can\`:"
+            echo
+            echo '```'
+            echo 'curl -s -H "Authorization: Bearer $ANGLER_API_KEY" "$ANGLER_BASE_URL/firecrawl/health"'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Van tay mong doi: $can"
