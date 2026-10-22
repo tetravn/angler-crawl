@@ -208,7 +208,9 @@ services:
   # Cổng vào duy nhất cho LLM của shim. Inert tới khi cấu hình provider.
   # ─────────────────────────────────────────────────────────────────
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    # Ghim digest (SDO-315): 21/10/2026 LiteLLM bị cài mã độc lên GHCR/Docker Hub/PyPI,
+    # tag trơn sẽ kéo bản mới ở lần redeploy kế. Chỉ đổi digest sau khi đối chiếu advisory LiteLLM.
+    image: ghcr.io/berriai/litellm:main-stable@sha256:468c25f35f3e5ec4e414974f00deab93337b1b4d9953cabcfd3722e59415f834
     container_name: litellm
     <<: *logging
     restart: unless-stopped
